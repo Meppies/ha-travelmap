@@ -1,0 +1,27 @@
+{
+  "domain": "travelmap",
+  "name": "Travel map",
+  "after_dependencies": [
+    "frontend",
+    "lovelace"
+  ],
+  "categories": ["productivity_information.documents_photos", "media_entertainment"],
+  "codeowners": [
+    "@Meppies"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "http",
+    "websocket_api"
+  ],
+  "documentation": "https://github.com/Meppies/ha-travelmap",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/Meppies/ha-travelmap/issues",
+  "loggers": [
+    "custom_components.travelmap"
+  ],
+  "quality_scale": "platinum",
+  "requirements": [],
+  "version": "0.1.0"
+}

@@ -1,0 +1,58 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Travel map",
+        "description": "Choose the folder that holds your trips: one folder per trip, with one subfolder per place.",
+        "data": { "path": "Folder" },
+        "data_description": { "path": "Absolute path as Home Assistant sees it. Network storage added with usage Media is mounted under /media." }
+      },
+      "reconfigure": {
+        "title": "Change the folder",
+        "description": "Point this entry at another folder of trips.",
+        "data": { "path": "Folder" },
+        "data_description": { "path": "Absolute path as Home Assistant sees it. Network storage added with usage Media is mounted under /media." }
+      }
+    },
+    "error": {
+      "path_not_absolute": "Enter an absolute path, starting with a slash.",
+      "path_not_found": "This folder does not exist, or Home Assistant cannot read it.",
+      "path_not_allowed": "Home Assistant may not read this folder. Use a folder under /media, or add it to allowlist_external_dirs."
+    },
+    "abort": {
+      "already_configured": "This folder is already set up.",
+      "reconfigure_successful": "The folder has been changed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Travel map options",
+        "data": { "scan_interval": "Scan interval" },
+        "data_description": { "scan_interval": "How often the folder is checked for new trips, places and photos." }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "rescan": { "name": "Scan now" }
+    },
+    "sensor": {
+      "trips": { "name": "Trips", "unit_of_measurement": "trips" },
+      "places": { "name": "Places", "unit_of_measurement": "places" },
+      "media_files": { "name": "Media files", "unit_of_measurement": "files" },
+      "places_without_coordinates": { "name": "Places without coordinates", "unit_of_measurement": "places" },
+      "last_scan": { "name": "Last scan" }
+    }
+  },
+  "exceptions": {
+    "scan_failed": { "message": "The folder {path} cannot be read: {error}" },
+    "rescan_failed": { "message": "The folder {path} could not be scanned. Check that the network storage is connected." }
+  },
+  "issues": {
+    "missing_coordinates": {
+      "title": "Places without coordinates on the travel map",
+      "description": "{count} place(s) have no marker, because their photos carry no GPS data and trip.yaml gives no coordinates: {places}.\n\nAdd `lat` and `lon` for each of them under `places` in the trip.yaml of that trip, then press Scan now."
+    }
+  }
+}

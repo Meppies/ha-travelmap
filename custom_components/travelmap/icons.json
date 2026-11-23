@@ -1,0 +1,14 @@
+{
+  "entity": {
+    "button": {
+      "rescan": { "default": "mdi:folder-refresh-outline" }
+    },
+    "sensor": {
+      "trips": { "default": "mdi:map-marker-path" },
+      "places": { "default": "mdi:map-marker-multiple-outline" },
+      "media_files": { "default": "mdi:image-multiple-outline" },
+      "places_without_coordinates": { "default": "mdi:map-marker-question-outline" },
+      "last_scan": { "default": "mdi:folder-clock-outline" }
+    }
+  }
+}
