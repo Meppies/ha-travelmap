@@ -1,6 +1,6 @@
 # Travel map for Home Assistant
 
-A private travel map for a Home Assistant dashboard. Your photos stay on your own storage; the card shows each trip on Home Assistant's own map, with one numbered marker per place and a route line between the places. Press play and the photos and videos of each place grow out of its marker, one after the other, while the map stays in view.
+A private travel map for a Home Assistant dashboard. Your photos stay on your own storage; the card shows each trip on Home Assistant's own map, with a marker per place. Press play and the photos and videos of each place grow out of its marker, one after the other, while the map stays in view.
 
 The integration reads a plain folder tree, for example a share on a NAS. There is no cloud service and no separate photo server.
 
@@ -104,7 +104,11 @@ autoplay: true
 | `photo_seconds` | `6` | Time per photo. |
 | `video_seconds` | `15` | Longest time per video. Videos play without sound. |
 | `place_zoom` | `12` | Zoom level for `view: place`. |
-| `route_color` | accent colour | Colour of the route and the markers. |
+| `marker_size` | `14` | Diameter of a marker in pixels, 6 to 40. |
+| `show_numbers` | `false` | Number the markers in order of travel. Needs a marker of 18 pixels or more. |
+| `route_line` | `false` | Draw a line between the places, in order of travel. |
+| `photo_line` | `false` | Draw a line between a photo and the marker it came from. |
+| `route_color` | accent colour | Colour of the markers and the lines. |
 | `entry` | all | Title or id of one config entry, when there are several folders. |
 
 Click a marker to jump to that place. The card follows the language of the user profile (English or Dutch).
@@ -162,7 +166,7 @@ When places have no coordinates, a repair issue lists them. Add `lat` and `lon` 
 - Photos are sent to the browser at full size. Export JPEGs at screen resolution for a smooth slideshow; 20 MB originals load slowly.
 - RAW files and HEIC are not shown. GPS data is read from JPEG only.
 - A browser may refuse to start a video without a user gesture; photos always play.
-- The route is a straight line between places, in the order of `trip.yaml`.
+- The optional route line is straight between places, in the order of `trip.yaml`.
 - The flat world map is not something Home Assistant's map component offers: its map style draws a globe when zoomed out. The card switches the map engine behind it to a flat projection. If a later Home Assistant release changes that engine, the map falls back to the globe and everything else keeps working.
 - Map tiles come from the map service of Home Assistant, so the map needs the same internet access as the built-in map card. Photos never leave the local network.
 

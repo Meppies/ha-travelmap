@@ -19,9 +19,13 @@
  *   video_seconds: 15
  *   place_zoom: 12          # zoom level for view: place
  *   route_color: "#e87722"
+ *   marker_size: 14         # diameter of a marker in pixels
+ *   show_numbers: false     # number the markers in order of travel
+ *   route_line: false       # line between the places
+ *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.3.1";
+const VERSION = "0.4.0";
 
 const DEFAULTS = {
   entry: undefined,
@@ -37,6 +41,10 @@ const DEFAULTS = {
   video_seconds: 15,
   place_zoom: 12,
   route_color: undefined,
+  marker_size: 14,
+  show_numbers: false,
+  route_line: false,
+  photo_line: false,
 };
 
 const VIEWS = ["world", "trip", "place"];
@@ -84,7 +92,11 @@ const TEXT = {
     form_photo_seconds: "Seconds per photo",
     form_video_seconds: "Longest time per video, in seconds",
     form_place_zoom: "Zoom level when flying to each place",
-    form_route_color: "Route colour",
+    form_route_color: "Colour of the markers and lines",
+    form_marker_size: "Marker size",
+    form_show_numbers: "Number the markers",
+    form_route_line: "Line between the places",
+    form_photo_line: "Line between a photo and its marker",
     view_trip: "The whole trip",
     view_world: "The whole world",
     view_place: "Fly to each place",
@@ -119,7 +131,11 @@ const TEXT = {
     form_photo_seconds: "Seconden per foto",
     form_video_seconds: "Langste tijd per video, in seconden",
     form_place_zoom: "Zoomniveau bij naar elke plek vliegen",
-    form_route_color: "Kleur van de route",
+    form_route_color: "Kleur van de markers en lijnen",
+    form_marker_size: "Grootte van de marker",
+    form_show_numbers: "Markers nummeren",
+    form_route_line: "Lijn tussen de plekken",
+    form_photo_line: "Lijn tussen een foto en zijn marker",
     view_trip: "De hele reis",
     view_world: "De hele wereld",
     view_place: "Naar elke plek vliegen",
@@ -270,6 +286,13 @@ class TravelmapCard extends HTMLElement {
         { name: "photo_seconds", selector: { number: { min: 1, max: 120, mode: "box" } } },
         { name: "video_seconds", selector: { number: { min: 1, max: 600, mode: "box" } } },
         { name: "place_zoom", selector: { number: { min: 3, max: 18, mode: "slider" } } },
+        {
+          name: "marker_size",
+          selector: { number: { min: 6, max: 40, mode: "slider", unit_of_measurement: "px" } },
+        },
+        { name: "show_numbers", selector: { boolean: {} } },
+        { name: "route_line", selector: { boolean: {} } },
+        { name: "photo_line", selector: { boolean: {} } },
         { name: "route_color", selector: { text: {} } },
       ],
       computeLabel: (schema) => TEXT[languageOf(globalHass())][`form_${schema.name}`],
@@ -315,6 +338,9 @@ class TravelmapCard extends HTMLElement {
       this._selectInitialTrip();
     } else if (
       previous.route_color !== merged.route_color ||
+      previous.marker_size !== merged.marker_size ||
+      previous.show_numbers !== merged.show_numbers ||
+      previous.route_line !== merged.route_line ||
       previous.view !== merged.view ||
       previous.projection !== merged.projection ||
       previous.max_zoom !== merged.max_zoom
@@ -573,17 +599,23 @@ class TravelmapCard extends HTMLElement {
     return accent || "#e87722";
   }
 
+  _markerSize() {
+    return Math.min(Math.max(this._number("marker_size"), 6), 40);
+  }
+
   _markerElement(number) {
     // The map positions the outer element with its own transform, so all
     // styling, and the scale of the active marker, goes on the inner one.
+    const size = this._markerSize();
+    const numbered = this._config.show_numbers === true && size >= 18;
     const element = document.createElement("div");
-    element.style.cssText = "width:30px;height:30px;cursor:pointer";
+    element.style.cssText = `width:${size}px;height:${size}px;cursor:pointer`;
     const dot = document.createElement("div");
-    dot.textContent = String(number);
+    if (numbered) dot.textContent = String(number);
     dot.style.cssText = [
       "width:100%", "height:100%", "box-sizing:border-box", "border-radius:50%",
       "display:flex", "align-items:center", "justify-content:center",
-      "font:600 14px/1 sans-serif",
+      `font:600 ${Math.round(size * 0.47)}px/1 sans-serif`,
       "box-shadow:0 1px 4px rgba(0,0,0,.5)", "transition:transform .3s ease",
     ].join(";");
     element.appendChild(dot);
@@ -595,8 +627,9 @@ class TravelmapCard extends HTMLElement {
     const dot = element.firstElementChild;
     dot.style.background = active ? color : "#fff";
     dot.style.color = active ? "#fff" : "#111";
-    dot.style.border = `3px solid ${active ? "#fff" : color}`;
-    dot.style.transform = active ? "scale(1.3)" : "scale(1)";
+    const border = Math.max(2, Math.round(this._markerSize() / 8));
+    dot.style.border = `${border}px solid ${active ? "#fff" : color}`;
+    dot.style.transform = active ? "scale(1.5)" : "scale(1)";
     // Places close together overlap in the overview; the active one goes on top.
     element.style.zIndex = active ? "5" : "";
   }
@@ -621,15 +654,15 @@ class TravelmapCard extends HTMLElement {
         id: place.id,
         location: [place.latitude, place.longitude],
         element,
-        elementSize: [30, 30],
-        title: `${index + 1}. ${place.name}`,
+        elementSize: [this._markerSize(), this._markerSize()],
+        title: place.name,
         activatable: true,
       };
     });
 
     const stamp = trip.start ? new Date(trip.start) : new Date();
     this._map.paths =
-      this._places.length > 1
+      this._config.route_line === true && this._places.length > 1
         ? [
             {
               points: this._places.map((place) => ({
@@ -745,7 +778,8 @@ class TravelmapCard extends HTMLElement {
       return;
     }
     const number = this._places.findIndex((candidate) => candidate.id === place.id) + 1;
-    this._placeEl.textContent = `${number}. ${place.name}`;
+    this._placeEl.textContent =
+      this._config.show_numbers === true ? `${number}. ${place.name}` : place.name;
     const count = item ? ` · ${index + 1}/${total}` : "";
     this._subEl.textContent = `${trip.title || trip.id}${country}${count}`;
   }
@@ -988,7 +1022,7 @@ class TravelmapCard extends HTMLElement {
 
     const oldCards = Array.from(this._stage.querySelectorAll(".photo"));
     const oldLines = Array.from(this._svg.querySelectorAll("line"));
-    this._svg.appendChild(line);
+    if (this._config.photo_line === true) this._svg.appendChild(line);
     this._stage.appendChild(card);
     // Force a style pass so the photo starts small, at the marker.
     void card.offsetWidth;
