@@ -53,11 +53,15 @@ def _normalise(path: str) -> str:
 
 
 def _check_path(hass: HomeAssistant, path: str) -> str | None:
-    """Return an error key when the folder cannot be used. Blocking."""
+    """Return an error key when the folder cannot be used. Blocking.
+
+    The folder does not have to exist yet: network storage is often added
+    after the integration.
+    """
     if not Path(path).is_absolute():
         return "path_not_absolute"
-    if not Path(path).is_dir():
-        return "path_not_found"
+    if Path(path).exists() and not Path(path).is_dir():
+        return "path_not_a_folder"
     if not hass.config.is_allowed_path(path):
         return "path_not_allowed"
     return None

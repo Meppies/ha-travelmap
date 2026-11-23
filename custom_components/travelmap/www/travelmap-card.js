@@ -17,7 +17,7 @@
  *   route_color: "#e87722"
  */
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 const DEFAULTS = {
   entry: undefined,
@@ -35,6 +35,7 @@ const SPLIT_MIN_WIDTH = 800;
 const FLY_MS = 2600;
 const FADE_MS = 700;
 const SIGN_EXPIRES_SECONDS = 900;
+const RETRY_MS = 30000;
 
 const TEXT = {
   en: {
@@ -50,6 +51,7 @@ const TEXT = {
     loading: "Loading trips…",
     no_integration: "The Travel map integration is not set up.",
     no_trips: "No trips found in the folder.",
+    no_folder: "The folder {path} is not available yet. Add the network storage in Settings → System → Storage; the map appears by itself.",
     no_map: "The Home Assistant map could not be loaded.",
     no_places: "This trip has no places with coordinates.",
     error: "Travel map",
@@ -78,6 +80,7 @@ const TEXT = {
     loading: "Reizen laden…",
     no_integration: "De integratie Reiskaart is niet ingesteld.",
     no_trips: "Geen reizen gevonden in de map.",
+    no_folder: "De map {path} is nog niet beschikbaar. Voeg de netwerkopslag toe via Instellingen → Systeem → Opslag; de kaart verschijnt daarna vanzelf.",
     no_map: "De kaart van Home Assistant kon niet worden geladen.",
     no_places: "Deze reis heeft geen plekken met coördinaten.",
     error: "Reiskaart",
@@ -291,10 +294,12 @@ class TravelmapCard extends HTMLElement {
   connectedCallback() {
     this._build();
     if (this._hass) this._start();
+    if (this._loadState === "ready" && this._trips.length === 0) this._retryLater();
   }
 
   disconnectedCallback() {
     this._stop();
+    clearTimeout(this._retryTimer);
     if (this._resizeObserver) this._resizeObserver.disconnect();
     this._resizeObserver = undefined;
   }
@@ -419,11 +424,7 @@ class TravelmapCard extends HTMLElement {
   async _fetchLibrary() {
     const result = await this._hass.callWS({ type: "travelmap/library" });
     this._entries = (result && result.entries) || [];
-    const wanted = this._config.entry;
-    const entries = wanted
-      ? this._entries.filter((entry) => entry.entry_id === wanted || entry.title === wanted)
-      : this._entries;
-    this._trips = entries.flatMap((entry) => entry.trips || []);
+    this._fetchLibraryView();
     if (this._entries.length === 0) {
       const error = new Error("no entries");
       error.code = "not_found";
@@ -477,9 +478,14 @@ class TravelmapCard extends HTMLElement {
     }
     this._select.hidden = this._trips.length < 2;
     if (this._trips.length === 0) {
-      this._message(this._t("no_trips"));
+      const waiting = this._shownEntries().find((entry) => entry.available === false);
+      this._message(
+        waiting ? this._t("no_folder").replace("{path}", waiting.path || "") : this._t("no_trips")
+      );
+      this._retryLater();
       return;
     }
+    clearTimeout(this._retryTimer);
     const wanted = this._config.trip;
     const found = this._trips.find((trip) => trip.id === wanted || trip.title === wanted);
     this._tripId = (found || this._trips[0]).id;
@@ -487,12 +493,30 @@ class TravelmapCard extends HTMLElement {
     this._drawTrip(true);
   }
 
-  _fetchLibraryView() {
+  _shownEntries() {
     const wanted = this._config.entry;
-    const entries = wanted
+    return wanted
       ? this._entries.filter((entry) => entry.entry_id === wanted || entry.title === wanted)
       : this._entries;
-    this._trips = entries.flatMap((entry) => entry.trips || []);
+  }
+
+  _fetchLibraryView() {
+    this._trips = this._shownEntries().flatMap((entry) => entry.trips || []);
+  }
+
+  _retryLater() {
+    // Nothing to show yet: the folder may still have to be added or filled.
+    clearTimeout(this._retryTimer);
+    this._retryTimer = setTimeout(async () => {
+      if (!this.isConnected || this._loadState !== "ready") return;
+      try {
+        await this._fetchLibrary();
+      } catch (err) {
+        this._retryLater();
+        return;
+      }
+      this._selectInitialTrip();
+    }, RETRY_MS);
   }
 
   _trip() {

@@ -68,6 +68,8 @@ def websocket_library(
                 {
                     "entry_id": entry.entry_id,
                     "title": entry.title,
+                    "path": str(entry.runtime_data.root),
+                    "available": entry.runtime_data.last_update_success,
                     "trips": [
                         _trip_payload(entry.entry_id, trip)
                         for trip in entry.runtime_data.data.trips

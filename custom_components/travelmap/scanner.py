@@ -128,6 +128,9 @@ class Library:
         return (trip, place, file) in self.files
 
 
+EMPTY_LIBRARY = Library(trips=(), warnings=(), files=frozenset())
+
+
 def natural_key(name: str) -> list[int | str]:
     """Sort key that puts 2.jpg before 10.jpg."""
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", name)]

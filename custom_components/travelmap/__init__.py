@@ -11,7 +11,12 @@ from homeassistant.helpers.typing import ConfigType
 from .api import TravelmapMediaView, websocket_library
 from .card import async_register_card, async_unregister_card
 from .const import DOMAIN
-from .coordinator import TravelmapConfigEntry, TravelmapCoordinator, missing_issue_id
+from .coordinator import (
+    TravelmapConfigEntry,
+    TravelmapCoordinator,
+    folder_issue_id,
+    missing_issue_id,
+)
 
 PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -27,7 +32,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: TravelmapConfigEntry) -> bool:
     """Set up Travel map from a config entry."""
     coordinator = TravelmapCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
+    # A folder that is not there yet must not stop setup: the entities are
+    # unavailable until it appears, and the coordinator keeps looking.
+    await coordinator.async_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await async_register_card(hass)
@@ -40,8 +47,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: TravelmapConfigEntry) -
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: TravelmapConfigEntry) -> None:
-    """Clean up the repair issue, and the card when no entry is left."""
+    """Clean up the repair issues, and the card when no entry is left."""
     ir.async_delete_issue(hass, DOMAIN, missing_issue_id(entry.entry_id))
+    ir.async_delete_issue(hass, DOMAIN, folder_issue_id(entry.entry_id))
     remaining = [
         other
         for other in hass.config_entries.async_entries(DOMAIN)

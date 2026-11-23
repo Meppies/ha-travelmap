@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 import json
 from pathlib import Path
 import shutil
+from unittest.mock import patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
+from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
+from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.travelmap.const import CONF_PATH, DOMAIN
 from custom_components.travelmap.diagnostics import async_get_config_entry_diagnostics
@@ -19,6 +26,7 @@ from custom_components.travelmap.diagnostics import async_get_config_entry_diagn
 from .conftest import setup_integration
 
 ISSUE_ID = "missing_coordinates_entry1"
+FOLDER_ISSUE_ID = "folder_missing_entry1"
 TRANSLATIONS = Path(__file__).parent.parent / "custom_components" / DOMAIN / "translations"
 
 
@@ -80,13 +88,69 @@ def test_translations_have_the_same_keys() -> None:
     assert keys(english) == keys(dutch)
 
 
-async def test_missing_folder_retries(
-    hass: HomeAssistant, mock_entry: MockConfigEntry, library_root: Path, card: dict
+async def test_folder_added_later(
+    hass: HomeAssistant,
+    mock_entry: MockConfigEntry,
+    library_root: Path,
+    card: dict,
+    hass_ws_client: WebSocketGenerator,
 ) -> None:
-    """A folder that is gone at startup means a retry, not a failure."""
-    shutil.rmtree(library_root)
+    """Setup succeeds without the folder, and picks it up once it is there."""
+    parked = library_root.parent / "parked"
+    library_root.rename(parked)
     await setup_integration(hass, mock_entry)
-    assert mock_entry.state is ConfigEntryState.SETUP_RETRY
+    assert mock_entry.state is ConfigEntryState.LOADED
+    card["register"].assert_awaited_once()
+    coordinator = mock_entry.runtime_data
+    assert coordinator.update_interval == timedelta(minutes=1)
+    assert _state(hass, "trips") == "unavailable"
+    issues = ir.async_get(hass)
+    issue = issues.async_get_issue(DOMAIN, FOLDER_ISSUE_ID)
+    assert issue is not None
+    assert issue.translation_placeholders == {"path": str(library_root)}
+
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "travelmap/library"})
+    (entry,) = (await client.receive_json())["result"]["entries"]
+    assert entry["available"] is False
+    assert entry["path"] == str(library_root)
+    assert entry["trips"] == []
+    result = await async_get_config_entry_diagnostics(hass, mock_entry)
+    assert (result["trips"], result["last_scan"], result["last_update_success"]) == (0, None, False)
+
+    # The network storage is added: the next look finds it.
+    parked.rename(library_root)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=1, seconds=5))
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert _state(hass, "trips") == "2"
+    assert issues.async_get_issue(DOMAIN, FOLDER_ISSUE_ID) is None
+    assert coordinator.update_interval == timedelta(minutes=60)
+    await client.send_json_auto_id({"type": "travelmap/library"})
+    (entry,) = (await client.receive_json())["result"]["entries"]
+    assert entry["available"] is True
+
+    # Removing the entry while the folder is gone clears that issue too.
+    library_root.rename(parked)
+    await coordinator.async_refresh()
+    assert issues.async_get_issue(DOMAIN, FOLDER_ISSUE_ID) is not None
+    await hass.config_entries.async_remove(mock_entry.entry_id)
+    await hass.async_block_till_done()
+    assert issues.async_get_issue(DOMAIN, FOLDER_ISSUE_ID) is None
+
+
+async def test_unreadable_folder(
+    hass: HomeAssistant, mock_entry: MockConfigEntry, card: dict
+) -> None:
+    """Another read error makes the entities unavailable without that issue."""
+    with patch(
+        "custom_components.travelmap.coordinator.scan_library",
+        side_effect=PermissionError("denied"),
+    ):
+        await setup_integration(hass, mock_entry)
+    assert mock_entry.state is ConfigEntryState.LOADED
+    assert _state(hass, "trips") == "unavailable"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, FOLDER_ISSUE_ID) is None
+    assert mock_entry.runtime_data.update_interval == timedelta(minutes=60)
 
 
 async def test_repair_issue_and_rescan(

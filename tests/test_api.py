@@ -28,7 +28,7 @@ async def test_websocket_library(
     response = await client.receive_json()
     assert response["success"]
     (entry,) = response["result"]["entries"]
-    assert (entry["entry_id"], entry["title"]) == ("entry1", "trips")
+    assert (entry["entry_id"], entry["title"], entry["available"]) == ("entry1", "trips", True)
     japan = entry["trips"][0]
     assert japan["id"] == "2026-japan"
     assert japan["start"] == "2026-04-01"

@@ -3,21 +3,29 @@
     "step": {
       "user": {
         "title": "Reiskaart",
-        "description": "Kies de map met je reizen: één map per reis, met daarin één submap per plek.",
-        "data": { "path": "Map" },
-        "data_description": { "path": "Absoluut pad zoals Home Assistant het ziet. Netwerkopslag met gebruik Media staat onder /media." }
+        "description": "Kies de map met je reizen: één map per reis, met daarin één submap per plek. De map hoeft nog niet te bestaan; je kunt de netwerkopslag daarna toevoegen.",
+        "data": {
+          "path": "Map"
+        },
+        "data_description": {
+          "path": "Absoluut pad zoals Home Assistant het ziet. Netwerkopslag met gebruik Media staat onder /media."
+        }
       },
       "reconfigure": {
         "title": "Map wijzigen",
         "description": "Laat dit item naar een andere map met reizen wijzen.",
-        "data": { "path": "Map" },
-        "data_description": { "path": "Absoluut pad zoals Home Assistant het ziet. Netwerkopslag met gebruik Media staat onder /media." }
+        "data": {
+          "path": "Map"
+        },
+        "data_description": {
+          "path": "Absoluut pad zoals Home Assistant het ziet. Netwerkopslag met gebruik Media staat onder /media."
+        }
       }
     },
     "error": {
       "path_not_absolute": "Vul een absoluut pad in, beginnend met een slash.",
-      "path_not_found": "Deze map bestaat niet, of Home Assistant kan hem niet lezen.",
-      "path_not_allowed": "Home Assistant mag deze map niet lezen. Gebruik een map onder /media, of voeg hem toe aan allowlist_external_dirs."
+      "path_not_allowed": "Home Assistant mag deze map niet lezen. Gebruik een map onder /media, of voeg hem toe aan allowlist_external_dirs.",
+      "path_not_a_folder": "Dit pad is een bestand, geen map."
     },
     "abort": {
       "already_configured": "Deze map is al ingesteld.",
@@ -28,31 +36,59 @@
     "step": {
       "init": {
         "title": "Opties voor de reiskaart",
-        "data": { "scan_interval": "Scaninterval" },
-        "data_description": { "scan_interval": "Hoe vaak de map wordt gecontroleerd op nieuwe reizen, plekken en foto's." }
+        "data": {
+          "scan_interval": "Scaninterval"
+        },
+        "data_description": {
+          "scan_interval": "Hoe vaak de map wordt gecontroleerd op nieuwe reizen, plekken en foto's."
+        }
       }
     }
   },
   "entity": {
     "button": {
-      "rescan": { "name": "Nu scannen" }
+      "rescan": {
+        "name": "Nu scannen"
+      }
     },
     "sensor": {
-      "trips": { "name": "Reizen", "unit_of_measurement": "reizen" },
-      "places": { "name": "Plekken", "unit_of_measurement": "plekken" },
-      "media_files": { "name": "Mediabestanden", "unit_of_measurement": "bestanden" },
-      "places_without_coordinates": { "name": "Plekken zonder coördinaten", "unit_of_measurement": "plekken" },
-      "last_scan": { "name": "Laatste scan" }
+      "trips": {
+        "name": "Reizen",
+        "unit_of_measurement": "reizen"
+      },
+      "places": {
+        "name": "Plekken",
+        "unit_of_measurement": "plekken"
+      },
+      "media_files": {
+        "name": "Mediabestanden",
+        "unit_of_measurement": "bestanden"
+      },
+      "places_without_coordinates": {
+        "name": "Plekken zonder coördinaten",
+        "unit_of_measurement": "plekken"
+      },
+      "last_scan": {
+        "name": "Laatste scan"
+      }
     }
   },
   "exceptions": {
-    "scan_failed": { "message": "De map {path} kan niet worden gelezen: {error}" },
-    "rescan_failed": { "message": "De map {path} kon niet worden gescand. Controleer of de netwerkopslag verbonden is." }
+    "scan_failed": {
+      "message": "De map {path} kan niet worden gelezen: {error}"
+    },
+    "rescan_failed": {
+      "message": "De map {path} kon niet worden gescand. Controleer of de netwerkopslag verbonden is."
+    }
   },
   "issues": {
     "missing_coordinates": {
       "title": "Plekken zonder coördinaten op de reiskaart",
       "description": "{count} plek(ken) hebben geen marker, omdat de foto's geen GPS-gegevens bevatten en trip.yaml geen coördinaten geeft: {places}.\n\nVoeg voor elk daarvan `lat` en `lon` toe onder `places` in de trip.yaml van die reis en druk daarna op Nu scannen."
+    },
+    "folder_missing": {
+      "title": "De map van de reiskaart is niet beschikbaar",
+      "description": "De map `{path}` bestaat niet, of Home Assistant kan hem niet lezen.\n\nHeb je de netwerkopslag nog niet toegevoegd: ga naar Instellingen → Systeem → Opslag → Netwerkopslag toevoegen en kies gebruik Media. Was hij er eerder wel, controleer dan of de NAS aan staat.\n\nDe integratie kijkt elke minuut opnieuw; deze melding verdwijnt vanzelf zodra de map is gevonden."
     }
   }
 }

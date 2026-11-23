@@ -71,6 +71,8 @@ Settings → Devices & services → Add integration → Travel map.
 |---|---|
 | Folder | Absolute path of the folder that holds the trips, as Home Assistant sees it. Default `/media/trips`. The folder must be one that Home Assistant may read: anything under `/media`, or a folder listed in `allowlist_external_dirs`. |
 
+The folder does not have to exist when you add the integration. You can set up the integration and the card first and add the network storage afterwards: until then the entities are unavailable, a repair issue says which folder is missing, and the integration looks again every minute.
+
 The folder can be changed later with Reconfigure. Add the integration again for a second folder.
 
 ### Options
@@ -147,6 +149,8 @@ The card fetches the trip list over the websocket connection and asks Home Assis
 
 ## Repairs
 
+When the folder does not exist or cannot be read, a repair issue names it. It clears itself as soon as the folder is found.
+
 When places have no coordinates, a repair issue lists them. Add `lat` and `lon` for each under `places` in the `trip.yaml` of that trip and press Scan now; the issue then clears itself.
 
 ## Known limitations
@@ -159,9 +163,10 @@ When places have no coordinates, a repair issue lists them. Add `lat` and `lon` 
 
 ## Troubleshooting
 
-- "This folder does not exist": check the path in Settings → System → Storage. Network storage with usage Media is under `/media/<name>`.
+- The card says the folder is not available yet: add the network storage, or check the path in Settings → System → Storage. Network storage with usage Media is under `/media/<name>`. The card picks it up by itself within about a minute.
+- "GitHub answered with an error: Not Found" when adding the repository: the repository is private. The Marketplace needs a GitHub token with access to it.
 - "Home Assistant may not read this folder": use a folder under `/media`, or add the folder to `allowlist_external_dirs` in `configuration.yaml`.
-- Entities are unavailable: the folder cannot be read, usually because the NAS is off or the network storage is disconnected. They recover at the next scan.
+- Entities are unavailable: the folder cannot be read, because the network storage has not been added yet, the NAS is off or the storage is disconnected. They recover by themselves.
 - The card is not in the card picker: check Settings → Dashboards → Resources for `/travelmap/travelmap-card.js` and reload the browser without cache.
 - For more detail, enable debug logging on the integration page; every skipped place and unreadable `trip.yaml` is logged.
 

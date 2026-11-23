@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 import pytest
@@ -26,7 +26,7 @@ async def test_user_flow(hass: HomeAssistant, library_root: Path, tmp_path: Path
     outside = tmp_path.parent
     for path, error in (
         ("relative/path", "path_not_absolute"),
-        (str(library_root / "nope"), "path_not_found"),
+        (str(library_root / "index.json"), "path_not_a_folder"),
         (str(outside), "path_not_allowed"),
     ):
         result = await hass.config_entries.flow.async_configure(
@@ -65,10 +65,8 @@ async def test_reconfigure(
 
     result = await mock_entry.start_reconfigure_flow(hass)
     assert result["step_id"] == "reconfigure"
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_PATH: str(other / "nope")}
-    )
-    assert result["errors"] == {CONF_PATH: "path_not_found"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_PATH: "nope"})
+    assert result["errors"] == {CONF_PATH: "path_not_absolute"}
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_PATH: str(other)}
     )
@@ -107,3 +105,18 @@ async def test_options_flow(hass: HomeAssistant, mock_entry: MockConfigEntry) ->
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert mock_entry.options == {CONF_SCAN_INTERVAL: 15}
     assert mock_entry.runtime_data.update_interval.total_seconds() == 900
+
+
+async def test_user_flow_folder_comes_later(
+    hass: HomeAssistant, library_root: Path, tmp_path: Path
+) -> None:
+    """The integration can be added before its folder exists."""
+    later = tmp_path / "later"
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_PATH: str(later)}
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_PATH: str(later)}
+    assert result["result"].state is ConfigEntryState.LOADED
