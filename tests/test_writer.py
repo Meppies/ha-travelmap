@@ -1,0 +1,75 @@
+"""Tests for writing coordinates into trip.yaml."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+from custom_components.travelmap.writer import TripFileError, write_place_coordinates
+
+EXISTING = """\
+# Metadata for one trip.
+#   places   Coordinates per place folder.
+
+title: Japan
+start: 2026-04-01
+places:
+  tokyo:
+    lat: 35.6762
+    lon: 139.6503
+    name: Tōkyō
+  kyoto: just a note
+"""
+
+
+def test_update_keeps_the_rest(tmp_path: Path) -> None:
+    """Only the coordinates of the one place change."""
+    trip = tmp_path / "trip"
+    trip.mkdir()
+    (trip / "trip.yml").write_text(EXISTING, encoding="utf-8")
+
+    path = write_place_coordinates(tmp_path, "trip", "tokyo", 35.5, 139.75)
+    write_place_coordinates(tmp_path, "trip", "kyoto", 35.01160004, 135.7681)
+    write_place_coordinates(tmp_path, "trip", "nara", 34.6851, 135.8048)
+
+    assert path == trip / "trip.yml"
+    assert not (trip / "trip.yaml").exists()
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith(
+        "# Metadata for one trip.\n#   places   Coordinates per place folder.\n\n"
+    )
+    data = yaml.safe_load(text)
+    assert data["title"] == "Japan"
+    assert str(data["start"]) == "2026-04-01"
+    assert data["places"] == {
+        "tokyo": {"lat": 35.5, "lon": 139.75, "name": "Tōkyō"},
+        "kyoto": {"lat": 35.0116, "lon": 135.7681},
+        "nara": {"lat": 34.6851, "lon": 135.8048},
+    }
+    # The order of the places is the order of the route: it is kept.
+    assert list(data["places"]) == ["tokyo", "kyoto", "nara"]
+    assert "Tōkyō" in text
+
+
+@pytest.mark.parametrize("content", ["", "# only a comment\n", "title: T\n"])
+def test_file_without_places(tmp_path: Path, content: str) -> None:
+    """A file without places gets them added."""
+    trip = tmp_path / "trip"
+    trip.mkdir()
+    (trip / "trip.yaml").write_text(content, encoding="utf-8")
+    write_place_coordinates(tmp_path, "trip", "a", 1, 2)
+    data = yaml.safe_load((trip / "trip.yaml").read_text(encoding="utf-8"))
+    assert data["places"] == {"a": {"lat": 1.0, "lon": 2.0}}
+
+
+@pytest.mark.parametrize("content", ["- a\n- b\n", "places: [a, b]\n", "a: [unclosed"])
+def test_unsafe_files_are_left_alone(tmp_path: Path, content: str) -> None:
+    """A file the writer does not understand is not overwritten."""
+    trip = tmp_path / "trip"
+    trip.mkdir()
+    (trip / "trip.yaml").write_text(content, encoding="utf-8")
+    with pytest.raises(TripFileError):
+        write_place_coordinates(tmp_path, "trip", "a", 1, 2)
+    assert (trip / "trip.yaml").read_text(encoding="utf-8") == content

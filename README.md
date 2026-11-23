@@ -30,7 +30,7 @@ trips/
       011.jpg
 ```
 
-`trip.yaml` is optional and carries what the files cannot tell:
+`trip.yaml` is optional and carries what the files cannot tell. You do not have to write it by hand: the coordinates can be set from Home Assistant (see Coordinates per place), which creates or updates the file for you.
 
 ```yaml
 title: Japan
@@ -48,7 +48,7 @@ places:
 ```
 
 - The order of `places` is the order of travel, and so the order of the route. Folders that are not listed follow in alphabetical order.
-- A place takes its position from the EXIF GPS data of its first JPEG that has any. Without GPS data, the coordinates in `trip.yaml` are used. A place with neither gets no marker and is reported (see Repairs).
+- A place takes its position from `trip.yaml`. Without an entry there, the EXIF GPS data of its first JPEG that has any is used. A place with neither gets no marker and is reported (see Repairs).
 - Folders whose name starts with `.`, `_`, `@` or `#` are skipped, which keeps Synology's `@eaDir` and `#recycle` out.
 - Photos: jpg, jpeg, png, webp, avif, gif. Videos: mp4, m4v, mov, webm.
 
@@ -75,11 +75,21 @@ The folder does not have to exist when you add the integration. You can set up t
 
 The folder can be changed later with Reconfigure. Add the integration again for a second folder.
 
+### Coordinates per place
+
+Open the integration under Settings → Devices & services → Travel map and choose Configure → Places and their coordinates.
+
+1. Choose a trip. Each trip folder is listed with how many of its places have coordinates.
+2. Choose a place. Each place folder is listed with its coordinates and where they come from (`trip.yaml` or `exif`), or with ✗ when it has none.
+3. Click the map, drag the marker or type the latitude and longitude. Coordinates that are already known are filled in; for a new place the map opens at a neighbouring place.
+
+On save the coordinates are written to the `trip.yaml` of that trip, which is created when it does not exist. Everything else in the file is kept, including the comment block at its top; comments further down are not. The folder must be writable for Home Assistant, so the user of the network storage needs write access. The map updates straight away.
+
 ### Options
 
 | Option | Meaning |
 |---|---|
-| Scan interval | Minutes between two scans of the folder, 5 to 1440. Default 60. |
+| Scan interval | Minutes between two scans of the folder, 5 to 1440. Default 60. Under Configure → Settings. |
 
 ## The card
 
@@ -104,6 +114,7 @@ autoplay: true
 | `photo_seconds` | `6` | Time per photo. |
 | `video_seconds` | `15` | Longest time per video. Videos play without sound. |
 | `place_zoom` | `12` | Zoom level for `view: place`. |
+| `fly_seconds` | `6` | Duration of the flight from one place to the next with `view: place`, 1 to 30. The flight is one continuous, eased movement. |
 | `name_position` | `top-center` | Where on the photo the place name is shown: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` or `none`. |
 | `year_position` | `top-right` | Where on the photo the year of the trip is shown; same values. The year comes from `start` in `trip.yaml`, otherwise from the folder name. |
 | `marker_size` | `14` | Diameter of a marker in pixels, 6 to 40. |
@@ -153,7 +164,7 @@ automation:
 
 ## How data is updated
 
-The integration scans the folder at startup, then once per scan interval, and when Scan now is pressed. A scan reads the folder listing, each `trip.yaml` and the first 256 kB of JPEGs until one with GPS data is found per place. Nothing is written to the folder.
+The integration scans the folder at startup, then once per scan interval, and when Scan now is pressed. A scan reads the folder listing, each `trip.yaml` and the first 256 kB of JPEGs until one with GPS data is found per place. The only thing the integration ever writes is the `trip.yaml` of a trip, and only when you save coordinates in the options.
 
 The card fetches the trip list over the websocket connection and asks Home Assistant for a signed, short-lived link per photo. Photos are served only to signed-in users, and only files that the last scan found.
 
@@ -161,7 +172,7 @@ The card fetches the trip list over the websocket connection and asks Home Assis
 
 When the folder does not exist or cannot be read, a repair issue names it. It clears itself as soon as the folder is found.
 
-When places have no coordinates, a repair issue lists them. Add `lat` and `lon` for each under `places` in the `trip.yaml` of that trip and press Scan now; the issue then clears itself.
+When places have no coordinates, a repair issue lists them. Set them under Configure → Places and their coordinates, or add `lat` and `lon` under `places` in the `trip.yaml` of that trip and press Scan now; the issue then clears itself.
 
 ## Known limitations
 
@@ -179,6 +190,7 @@ When places have no coordinates, a repair issue lists them. Add `lat` and `lon` 
 - "Home Assistant may not read this folder": use a folder under `/media`, or add the folder to `allowlist_external_dirs` in `configuration.yaml`.
 - Entities are unavailable: the folder cannot be read, because the network storage has not been added yet, the NAS is off or the storage is disconnected. They recover by themselves.
 - The card is not in the card picker: check Settings → Dashboards → Resources for `/travelmap/travelmap-card.js` and reload the browser without cache.
+- "The file could not be written" when saving coordinates: the network storage is read-only for Home Assistant. Give its user write access on the NAS.
 - For more detail, enable debug logging on the integration page; every skipped place and unreadable `trip.yaml` is logged.
 
 ## Removal

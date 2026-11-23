@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+import re
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -164,3 +165,12 @@ async def test_unregister_without_lovelace(
     frontend.remove.side_effect = RuntimeError("boom")
     await async_unregister_card(hass)
     assert "Could not remove the Travel map card resource" in caplog.text
+
+
+def test_card_has_no_duplicate_methods() -> None:
+    """A method defined twice silently replaces the first one."""
+    names = re.findall(
+        r"^  (?:static )?(?:async )?(?:get |set )?(\w+)\(", CARD_PATH.read_text(), re.M
+    )
+    duplicates = {name for name in names if names.count(name) > 1} - {"hass"}
+    assert not duplicates

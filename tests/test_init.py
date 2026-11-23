@@ -50,11 +50,11 @@ async def test_setup_and_entities(
 
     assert _state(hass, "trips") == "2"
     assert _state(hass, "places") == "5"
-    assert _state(hass, "media_files") == "6"
+    assert _state(hass, "media_files") == "7"
     assert _state(hass, "places_without_coordinates") == "2"
     registry = er.async_get(hass)
     missing = registry.async_get_entity_id("sensor", DOMAIN, "entry1_places_without_coordinates")
-    assert hass.states.get(missing).attributes["places"] == ["2026-japan/osaka", "2025-loose/a"]
+    assert hass.states.get(missing).attributes["places"] == ["2026-japan/nara", "2025-loose/a"]
     trips = registry.async_get_entity_id("sensor", DOMAIN, "entry1_trips")
     assert hass.states.get(trips).attributes["trips"] == ["2026-japan", "2025-loose"]
     assert hass.states.get(trips).name == "trips Trips"
@@ -163,11 +163,11 @@ async def test_repair_issue_and_rescan(
     assert issue is not None
     assert issue.translation_placeholders == {
         "count": "2",
-        "places": "2026-japan/osaka, 2025-loose/a",
+        "places": "2026-japan/nara, 2025-loose/a",
     }
 
     shutil.rmtree(library_root / "2025-loose")
-    shutil.rmtree(library_root / "2026-japan" / "osaka")
+    shutil.rmtree(library_root / "2026-japan" / "nara")
     button = er.async_get(hass).async_get_entity_id("button", DOMAIN, "entry1_rescan")
     await hass.services.async_call("button", "press", {"entity_id": button}, blocking=True)
     assert issues.async_get_issue(DOMAIN, ISSUE_ID) is None
@@ -207,7 +207,7 @@ async def test_diagnostics(hass: HomeAssistant, mock_entry: MockConfigEntry, car
     result = await async_get_config_entry_diagnostics(hass, mock_entry)
     assert result["trips"] == 2
     assert result["places"] == 5
-    assert result["media_files"] == 6
+    assert result["media_files"] == 7
     assert result["places_without_coordinates"] == 2
     assert result["places_per_trip"] == [4, 1]
     assert result["coordinate_sources"] == {"exif": 1, "trip.yaml": 2}

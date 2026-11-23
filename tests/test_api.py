@@ -34,12 +34,13 @@ async def test_websocket_library(
     assert japan["start"] == "2026-04-01"
     kyoto = japan["places"][1]
     assert kyoto["name"] == "Kyōto"
-    assert kyoto["source"] == "exif"
+    assert kyoto["source"] == "trip.yaml"
     assert kyoto["media"] == [
         {"url": f"{BASE}/2026-japan/kyoto/001%20temple.jpg", "type": "image"},
         {"url": f"{BASE}/2026-japan/kyoto/clip.MP4", "type": "video"},
     ]
-    assert japan["places"][3]["latitude"] is None
+    assert japan["places"][2]["latitude"] is None
+    assert japan["places"][3]["source"] == "exif"
 
 
 async def test_media_view(

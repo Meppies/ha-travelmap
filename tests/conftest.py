@@ -23,12 +23,11 @@ places:
     lat: 35.6762
     lon: 139.6503
   kyoto:
-    lat: 1.0
-    lon: 1.0
+    lat: 1.5
+    lon: 2.5
     name: Kyōto
   nara:
-    lat: 34.6851
-    lon: 135.8048
+    name: Nara
 """
 
 
@@ -90,9 +89,10 @@ def build_library(root: Path) -> Path:
     (japan / "tokyo" / "notes.txt").write_text("not media")
     (japan / "tokyo" / ".hidden.jpg").write_bytes(PLAIN_JPEG)
     (japan / "tokyo" / "sub.jpg").mkdir()
-    (japan / "kyoto" / "001 temple.jpg").write_bytes(exif_jpeg(35.0115, 135.7681))
+    (japan / "kyoto" / "001 temple.jpg").write_bytes(PLAIN_JPEG)
     (japan / "kyoto" / "clip.MP4").write_bytes(b"video")
     (japan / "osaka" / "a.png").write_bytes(b"png")
+    (japan / "osaka" / "b.jpg").write_bytes(exif_jpeg(34.6937, 135.5023))
     (japan / "@eaDir").mkdir()
     (root / "_project").mkdir()
     (root / ".hidden").mkdir()

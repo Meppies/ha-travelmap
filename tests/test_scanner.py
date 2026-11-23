@@ -30,26 +30,28 @@ def test_scan_library(tmp_path: Path) -> None:
     tokyo, kyoto, nara, osaka = japan.places
     assert (tokyo.latitude, tokyo.longitude, tokyo.source) == (35.6762, 139.6503, "trip.yaml")
     assert [item.file for item in tokyo.media] == ["2.jpg", "10.jpg"]
-    # EXIF GPS beats trip.yaml; the display name comes from trip.yaml.
+    # trip.yaml beats EXIF GPS: it is what the user chose.
     assert kyoto.name == "Kyōto"
-    assert kyoto.source == "exif"
-    assert kyoto.latitude == pytest.approx(35.0115, abs=1e-5)
-    assert kyoto.longitude == pytest.approx(135.7681, abs=1e-5)
+    assert kyoto.source == "trip.yaml"
+    assert (kyoto.latitude, kyoto.longitude) == (1.5, 2.5)
     assert [(item.file, item.kind) for item in kyoto.media] == [
         ("001 temple.jpg", "image"),
         ("clip.MP4", "video"),
     ]
     assert nara.media == ()
-    assert nara.source == "trip.yaml"
-    assert (osaka.latitude, osaka.longitude, osaka.source) == (None, None, None)
+    # No entry in trip.yaml: the EXIF GPS data of the photo is used.
+    assert osaka.source == "exif"
+    assert osaka.latitude == pytest.approx(34.6937, abs=1e-5)
+    assert osaka.longitude == pytest.approx(135.5023, abs=1e-5)
+    assert (nara.latitude, nara.source) == (None, None)
 
     assert (loose.title, loose.country, loose.start) == ("2025-loose", None, None)
-    assert library.missing == ["2026-japan/osaka", "2025-loose/a"]
+    assert library.missing == ["2026-japan/nara", "2025-loose/a"]
     assert library.place_count == 5
-    assert library.media_count == 6
+    assert library.media_count == 7
     assert library.has_media("2026-japan", "kyoto", "clip.MP4")
     assert not library.has_media("2026-japan", "kyoto", "../trip.yaml")
-    assert any("osaka: no EXIF GPS" in warning for warning in library.warnings)
+    assert any("nara: no EXIF GPS" in warning for warning in library.warnings)
     assert any("2025-loose: no trip.yaml" in warning for warning in library.warnings)
 
 

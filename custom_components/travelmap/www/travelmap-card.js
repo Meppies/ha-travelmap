@@ -18,6 +18,7 @@
  *   photo_seconds: 6
  *   video_seconds: 15
  *   place_zoom: 12          # zoom level for view: place
+ *   fly_seconds: 6          # duration of the flight between two places, view: place
  *   route_color: "#e87722"
  *   name_position: top-center   # where on the photo the place name goes, or none
  *   year_position: top-right    # where on the photo the year of the trip goes, or none
@@ -27,7 +28,7 @@
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 
 const DEFAULTS = {
   entry: undefined,
@@ -42,6 +43,7 @@ const DEFAULTS = {
   photo_seconds: 6,
   video_seconds: 15,
   place_zoom: 12,
+  fly_seconds: 6,
   route_color: undefined,
   name_position: "top-center",
   year_position: "top-right",
@@ -68,6 +70,8 @@ const WORLD_BOUNDS = [
   [74, 178],
 ];
 const FLY_MS = 2600;
+// Home Assistant's zoom levels are one higher than those of the map engine.
+const ENGINE_ZOOM_OFFSET = 1;
 const SETTLE_MS = 1400;
 const GROW_MS = 900;
 const FADE_MS = 600;
@@ -105,6 +109,7 @@ const TEXT = {
     form_photo_seconds: "Seconds per photo",
     form_video_seconds: "Longest time per video, in seconds",
     form_place_zoom: "Zoom level when flying to each place",
+    form_fly_seconds: "Duration of the flight between two places, in seconds",
     form_route_color: "Colour of the markers and lines",
     form_name_position: "Place name on the photo",
     form_year_position: "Year on the photo",
@@ -153,6 +158,7 @@ const TEXT = {
     form_photo_seconds: "Seconden per foto",
     form_video_seconds: "Langste tijd per video, in seconden",
     form_place_zoom: "Zoomniveau bij naar elke plek vliegen",
+    form_fly_seconds: "Duur van de vlucht tussen twee plekken, in seconden",
     form_route_color: "Kleur van de markers en lijnen",
     form_name_position: "Plaatsnaam op de foto",
     form_year_position: "Jaartal op de foto",
@@ -336,6 +342,10 @@ class TravelmapCard extends HTMLElement {
         { name: "photo_seconds", selector: { number: { min: 1, max: 120, mode: "box" } } },
         { name: "video_seconds", selector: { number: { min: 1, max: 600, mode: "box" } } },
         { name: "place_zoom", selector: { number: { min: 3, max: 18, mode: "slider" } } },
+        {
+          name: "fly_seconds",
+          selector: { number: { min: 1, max: 30, mode: "slider", unit_of_measurement: "s" } },
+        },
         ...["name_position", "year_position"].map((name) => ({
           name,
           selector: {
@@ -753,13 +763,72 @@ class TravelmapCard extends HTMLElement {
   _fitTrip(fly) {
     // The overview: the whole world, or the whole trip.
     if (!this._map) return;
-    if (this._config.view === "world") {
-      this._map.fitBounds(WORLD_BOUNDS, { zoom: 6, pad: 0, fly });
-      return;
+    const world = this._config.view === "world";
+    if (!world && this._places.length === 0) return;
+    const points = world
+      ? WORLD_BOUNDS
+      : this._places.map((place) => [place.latitude, place.longitude]);
+    const zoom = world ? 6 : this._number("max_zoom");
+    const pad = world ? 0 : 0.3;
+    const gl = fly ? this._engineMap() : undefined;
+    if (gl) {
+      // A slow glide back, driven on the map engine itself.
+      try {
+        const lats = points.map((point) => point[0]);
+        const lons = points.map((point) => point[1]);
+        const frame = this._frame.getBoundingClientRect();
+        gl.stop();
+        gl.fitBounds(
+          [
+            [Math.min(...lons), Math.min(...lats)],
+            [Math.max(...lons), Math.max(...lats)],
+          ],
+          {
+            duration: 3000,
+            essential: true,
+            maxZoom: zoom - ENGINE_ZOOM_OFFSET,
+            padding: Math.round(Math.min(frame.width, frame.height) * pad * 0.5),
+          }
+        );
+        return;
+      } catch (err) {
+        // Fall through to the map's own fit.
+      }
     }
-    if (this._places.length === 0) return;
-    const points = this._places.map((place) => [place.latitude, place.longitude]);
-    this._map.fitBounds(points, { zoom: this._number("max_zoom"), pad: 0.3, fly });
+    this._map.fitBounds(points, { zoom, pad, fly });
+  }
+
+  async _flyTo(place) {
+    // One long, eased flight from where the map is to the place. The map's
+    // own fit flies at a fixed speed and jumps when the device asks for
+    // reduced motion, so the flight is driven on the map engine, with a set
+    // duration.
+    const seconds = Math.min(Math.max(this._number("fly_seconds"), 1), 30);
+    const gl = this._engineMap();
+    if (gl) {
+      try {
+        gl.stop();
+        const arrived = new Promise((resolve) => gl.once("moveend", resolve));
+        gl.flyTo({
+          center: [place.longitude, place.latitude],
+          zoom: this._number("place_zoom") - ENGINE_ZOOM_OFFSET,
+          duration: seconds * 1000,
+          curve: 1.2,
+          essential: true,
+          // Slow start, slow arrival.
+          easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2),
+        });
+        await Promise.race([arrived, this._sleep(seconds * 1000 + 1500)]);
+        return;
+      } catch (err) {
+        // Fall through to the map's own flight.
+      }
+    }
+    this._map.fitBounds([[place.latitude, place.longitude]], {
+      zoom: this._number("place_zoom"),
+      fly: true,
+    });
+    await this._sleep(FLY_MS);
   }
 
   // ----- Projection -------------------------------------------------------
@@ -808,13 +877,6 @@ class TravelmapCard extends HTMLElement {
       if (done || tries > 60) clearInterval(this._projectionTimer);
       if (done && !this._playing) this._fitTrip(false);
     }, 500);
-  }
-
-  _flyTo(place) {
-    this._map.fitBounds([[place.latitude, place.longitude]], {
-      zoom: this._number("place_zoom"),
-      fly: true,
-    });
   }
 
   _setActive(placeId) {
@@ -871,6 +933,8 @@ class TravelmapCard extends HTMLElement {
     this._playing = false;
     if (this._wake) this._wake();
     if (!this._built) return;
+    const gl = this._engineMap();
+    if (gl) gl.stop();
     this._frame.classList.remove("playing");
     this._clearStage();
     this._setActive(undefined);
@@ -942,8 +1006,10 @@ class TravelmapCard extends HTMLElement {
     this._setActive(place.id);
     this._showCaption(place);
     if (this._config.view === "place") {
-      this._flyTo(place);
-      await this._sleep(FLY_MS);
+      await this._flyTo(place);
+      if (!this._alive(generation)) return;
+      // A moment to take in where the map has arrived.
+      await this._sleep(700);
     } else {
       await this._sleep(500);
     }

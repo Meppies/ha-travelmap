@@ -12,8 +12,9 @@ Layout on disk: one folder per trip, one subfolder per place.
 
 Coordinates of a place, in order of preference:
 
-1. EXIF GPS data of the first JPEG in the place folder that carries it.
-2. ``places.<folder name>`` in ``trip.yaml``.
+1. ``places.<folder name>`` in ``trip.yaml``. This is what the user typed or
+   picked on the map, so it wins.
+2. EXIF GPS data of the first JPEG in the place folder that carries it.
 3. None: the place gets no marker and is reported.
 
 Places listed in ``trip.yaml`` keep the order of that file, which is the order
@@ -319,11 +320,11 @@ def _scan_trip(trip_dir: Path, warnings: list[str]) -> Trip:
     for place_dir in place_dirs:
         entry = manual.get(place_dir.name)
         media = _collect_media(place_dir)
-        coordinates = _exif_coordinates(place_dir, media)
-        source: str | None = "exif"
+        coordinates = _manual_coordinates(entry)
+        source: str | None = "trip.yaml"
         if coordinates is None:
-            coordinates = _manual_coordinates(entry)
-            source = "trip.yaml"
+            coordinates = _exif_coordinates(place_dir, media)
+            source = "exif"
         if coordinates is None:
             source = None
             warnings.append(

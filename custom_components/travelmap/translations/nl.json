@@ -35,14 +35,59 @@
   "options": {
     "step": {
       "init": {
-        "title": "Opties voor de reiskaart",
+        "title": "Reiskaart",
+        "menu_options": {
+          "trip": "Plekken en hun coördinaten",
+          "settings": "Instellingen"
+        }
+      },
+      "settings": {
+        "title": "Instellingen van de reiskaart",
         "data": {
           "scan_interval": "Scaninterval"
         },
         "data_description": {
           "scan_interval": "Hoe vaak de map wordt gecontroleerd op nieuwe reizen, plekken en foto's."
         }
+      },
+      "trip": {
+        "title": "Kies een reis",
+        "description": "De mappen van je reizen. De getallen geven aan hoeveel plekken van elke reis coördinaten hebben.",
+        "data": {
+          "trip": "Reis"
+        }
+      },
+      "place": {
+        "title": "Plekken van {trip}",
+        "description": "De plekmappen van deze reis. ✓ heeft coördinaten, met waar ze vandaan komen; ✗ heeft er nog geen. Kies een plek om de coördinaten in te stellen of te wijzigen.",
+        "data": {
+          "place": "Plek"
+        }
+      },
+      "coordinates": {
+        "title": "Coördinaten van {place}",
+        "description": "Reis: {trip}. Nu: {current}.\n\nKlik op de kaart of versleep de marker, of typ de breedte- en lengtegraad. De coördinaten worden opgeslagen in de trip.yaml van de reismap, dus de map moet beschrijfbaar zijn.",
+        "data": {
+          "location": "Locatie"
+        }
+      },
+      "saved": {
+        "title": "Opgeslagen",
+        "description": "De coördinaten van {place} staan in de trip.yaml van {trip}.",
+        "menu_options": {
+          "place": "Nog een plek van deze reis",
+          "trip": "Een andere reis",
+          "finish": "Klaar"
+        }
       }
+    },
+    "error": {
+      "write_failed": "Het bestand kon niet worden geschreven. Controleer of Home Assistant in de map mag schrijven; de gebruiker van de netwerkopslag heeft schrijfrechten nodig.",
+      "trip_file_invalid": "De bestaande trip.yaml van deze reis is geen geldige YAML en is daarom met rust gelaten. Herstel of verwijder het bestand eerst."
+    },
+    "abort": {
+      "no_trips": "Er zijn geen reismappen gevonden. Controleer of de map beschikbaar is en per reis een map bevat.",
+      "no_places": "Deze reis heeft geen plekmappen."
     }
   },
   "entity": {
@@ -84,7 +129,7 @@
   "issues": {
     "missing_coordinates": {
       "title": "Plekken zonder coördinaten op de reiskaart",
-      "description": "{count} plek(ken) hebben geen marker, omdat de foto's geen GPS-gegevens bevatten en trip.yaml geen coördinaten geeft: {places}.\n\nVoeg voor elk daarvan `lat` en `lon` toe onder `places` in de trip.yaml van die reis en druk daarna op Nu scannen."
+      "description": "{count} plek(ken) hebben geen marker, omdat trip.yaml geen coördinaten geeft en de foto's geen GPS-gegevens bevatten: {places}.\n\nStel ze in bij de integratie: Configureren → Plekken en hun coördinaten."
     },
     "folder_missing": {
       "title": "De map van de reiskaart is niet beschikbaar",
