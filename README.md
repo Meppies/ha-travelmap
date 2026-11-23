@@ -95,7 +95,8 @@ autoplay: true
 |---|---|---|
 | `trip` | newest trip | Folder name of the trip to start with. |
 | `height` | `70vh` | Any CSS length. |
-| `view` | `trip` | What the map shows while playing. `trip` keeps the whole trip in view, `world` shows the world with the trip in the middle, `place` flies to each place. |
+| `view` | `world` | What the map shows while playing. `world` shows the whole world, `trip` keeps the whole trip in view, `place` flies to each place. |
+| `projection` | `flat` | `flat` draws a flat world map. `globe` leaves the map as Home Assistant draws it, which is a globe when zoomed out. |
 | `max_zoom` | `6` | Closest zoom for the `trip` view. A lower number shows more of the world around the trip. |
 | `photo_size` | `70` | Largest size of a photo, as a percentage of the card. A photo is made smaller when that keeps its marker in view. |
 | `autoplay` | `false` | Start playing when the card loads. |
@@ -161,6 +162,7 @@ When places have no coordinates, a repair issue lists them. Add `lat` and `lon` 
 - RAW files and HEIC are not shown. GPS data is read from JPEG only.
 - A browser may refuse to start a video without a user gesture; photos always play.
 - The route is a straight line between places, in the order of `trip.yaml`.
+- The flat world map is not something Home Assistant's map component offers: its map style draws a globe when zoomed out. The card switches the map engine behind it to a flat projection. If a later Home Assistant release changes that engine, the map falls back to the globe and everything else keeps working.
 - Map tiles come from the map service of Home Assistant, so the map needs the same internet access as the built-in map card. Photos never leave the local network.
 
 ## Troubleshooting

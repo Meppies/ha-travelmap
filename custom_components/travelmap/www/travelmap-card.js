@@ -9,7 +9,8 @@
  *   type: custom:travelmap-card
  *   trip: 2026-japan        # optional, folder name of the trip to start with
  *   height: 70vh            # optional, any CSS length
- *   view: trip              # trip | world | place: what the map shows while playing
+ *   view: world             # world | trip | place: what the map shows while playing
+ *   projection: flat        # flat | globe
  *   max_zoom: 6             # closest zoom for the trip view
  *   photo_size: 70          # size of a photo, as a percentage of the card
  *   autoplay: false
@@ -19,13 +20,14 @@
  *   route_color: "#e87722"
  */
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 const DEFAULTS = {
   entry: undefined,
   trip: undefined,
   height: "70vh",
-  view: "trip",
+  view: "world",
+  projection: "flat",
   max_zoom: 6,
   photo_size: 70,
   autoplay: false,
@@ -35,8 +37,13 @@ const DEFAULTS = {
   route_color: undefined,
 };
 
-const VIEWS = ["trip", "world", "place"];
-const WORLD_ZOOM = 2;
+const VIEWS = ["world", "trip", "place"];
+const PROJECTIONS = ["flat", "globe"];
+// The inhabited world, corner to corner: what the world view fits.
+const WORLD_BOUNDS = [
+  [-56, -168],
+  [74, 178],
+];
 const FLY_MS = 2600;
 const SETTLE_MS = 1400;
 const GROW_MS = 900;
@@ -65,6 +72,9 @@ const TEXT = {
     form_trip: "Trip to start with (folder name)",
     form_height: "Height (CSS length, for example 70vh)",
     form_view: "What the map shows while playing",
+    form_projection: "Shape of the map when zoomed out",
+    projection_flat: "Flat map",
+    projection_globe: "Globe",
     form_max_zoom: "Closest zoom for the whole trip",
     form_photo_size: "Photo size, as a percentage of the card",
     form_autoplay: "Start playing right away",
@@ -73,7 +83,7 @@ const TEXT = {
     form_place_zoom: "Zoom level when flying to each place",
     form_route_color: "Route colour",
     view_trip: "The whole trip",
-    view_world: "The world",
+    view_world: "The whole world",
     view_place: "Fly to each place",
   },
   nl: {
@@ -96,6 +106,9 @@ const TEXT = {
     form_trip: "Reis om mee te beginnen (mapnaam)",
     form_height: "Hoogte (CSS-lengte, bijvoorbeeld 70vh)",
     form_view: "Wat de kaart toont tijdens het afspelen",
+    form_projection: "Vorm van de kaart bij uitzoomen",
+    projection_flat: "Platte kaart",
+    projection_globe: "Wereldbol",
     form_max_zoom: "Dichtste zoom voor de hele reis",
     form_photo_size: "Fotogrootte, als percentage van de kaart",
     form_autoplay: "Meteen afspelen",
@@ -104,7 +117,7 @@ const TEXT = {
     form_place_zoom: "Zoomniveau bij naar elke plek vliegen",
     form_route_color: "Kleur van de route",
     view_trip: "De hele reis",
-    view_world: "De wereld",
+    view_world: "De hele wereld",
     view_place: "Naar elke plek vliegen",
   },
 };
@@ -228,6 +241,18 @@ class TravelmapCard extends HTMLElement {
             },
           },
         },
+        {
+          name: "projection",
+          selector: {
+            select: {
+              mode: "dropdown",
+              options: PROJECTIONS.map((value) => ({
+                value,
+                label: text[`projection_${value}`],
+              })),
+            },
+          },
+        },
         { name: "max_zoom", selector: { number: { min: 1, max: 18, mode: "slider" } } },
         { name: "photo_size", selector: { number: { min: 30, max: 95, mode: "slider" } } },
         { name: "autoplay", selector: { boolean: {} } },
@@ -266,7 +291,10 @@ class TravelmapCard extends HTMLElement {
       if (value !== undefined && value !== null && value !== "") merged[key] = value;
     }
     if (!VIEWS.includes(merged.view)) {
-      throw new Error("view must be trip, world or place");
+      throw new Error("view must be world, trip or place");
+    }
+    if (!PROJECTIONS.includes(merged.projection)) {
+      throw new Error("projection must be flat or globe");
     }
     const previous = this._config;
     this._config = merged;
@@ -277,9 +305,11 @@ class TravelmapCard extends HTMLElement {
     } else if (
       previous.route_color !== merged.route_color ||
       previous.view !== merged.view ||
+      previous.projection !== merged.projection ||
       previous.max_zoom !== merged.max_zoom
     ) {
       this._stop();
+      this._applyProjection();
       this._drawTrip(true);
     }
   }
@@ -311,11 +341,14 @@ class TravelmapCard extends HTMLElement {
     this._build();
     if (this._hass) this._start();
     if (this._loadState === "ready" && this._trips.length === 0) this._retryLater();
+    // Back on screen: the map builds a new engine, which starts as a globe.
+    if (this._map) this._watchProjection();
   }
 
   disconnectedCallback() {
     this._stop();
     clearTimeout(this._retryTimer);
+    clearInterval(this._projectionTimer);
   }
 
   _t(key) {
@@ -458,6 +491,7 @@ class TravelmapCard extends HTMLElement {
       });
       this._mapHost.appendChild(map);
       this._map = map;
+      this._watchProjection();
     }
     return true;
   }
@@ -609,11 +643,63 @@ class TravelmapCard extends HTMLElement {
   }
 
   _fitTrip(fly) {
-    // The overview: the whole trip, or the world with the trip in the middle.
-    if (!this._map || this._places.length === 0) return;
+    // The overview: the whole world, or the whole trip.
+    if (!this._map) return;
+    if (this._config.view === "world") {
+      this._map.fitBounds(WORLD_BOUNDS, { zoom: 6, pad: 0, fly });
+      return;
+    }
+    if (this._places.length === 0) return;
     const points = this._places.map((place) => [place.latitude, place.longitude]);
-    const zoom = this._config.view === "world" ? WORLD_ZOOM : this._number("max_zoom");
-    this._map.fitBounds(points, { zoom, pad: 0.3, fly });
+    this._map.fitBounds(points, { zoom: this._number("max_zoom"), pad: 0.3, fly });
+  }
+
+  // ----- Projection -------------------------------------------------------
+  //
+  // Home Assistant's map style draws a globe when zoomed out, and <ha-map>
+  // has no setting for that. A flat world map therefore reaches into the map
+  // engine behind it (MapLibre) and asks for the Mercator projection. That
+  // is not a public interface: when it is not there, the card says nothing
+  // and the map stays as Home Assistant draws it.
+
+  _engineMap() {
+    const engine = this._map && this._map._engine;
+    const gl = engine && engine._map;
+    return gl && typeof gl.setProjection === "function" ? gl : undefined;
+  }
+
+  _applyProjection() {
+    const gl = this._engineMap();
+    if (!gl) return false;
+    const wanted = this._config.projection === "globe" ? "globe" : "mercator";
+    const apply = () => {
+      try {
+        const current = gl.getProjection ? gl.getProjection() : undefined;
+        if (!current || current.type !== wanted) gl.setProjection({ type: wanted });
+      } catch (err) {
+        // Leave the map as it is.
+      }
+    };
+    if (this._projectionMap !== gl) {
+      // A theme change reloads the style, and the style brings the globe back.
+      this._projectionMap = gl;
+      gl.on("styledata", () => this._applyProjection());
+    }
+    apply();
+    return true;
+  }
+
+  _watchProjection() {
+    // The engine arrives some time after the element; fit again once the
+    // projection is in place, because the first fit was made for the globe.
+    let tries = 0;
+    clearInterval(this._projectionTimer);
+    this._projectionTimer = setInterval(() => {
+      tries += 1;
+      const done = this._applyProjection();
+      if (done || tries > 60) clearInterval(this._projectionTimer);
+      if (done && !this._playing) this._fitTrip(false);
+    }, 500);
   }
 
   _flyTo(place) {
