@@ -1,6 +1,6 @@
 # Travel map for Home Assistant
 
-A private travel map for a Home Assistant dashboard. Your photos stay on your own storage; the card shows each trip on Home Assistant's own map, with one numbered marker per place and a route line between the places. Press play and the map flies from place to place while the photos and videos of each place are shown.
+A private travel map for a Home Assistant dashboard. Your photos stay on your own storage; the card shows each trip on Home Assistant's own map, with one numbered marker per place and a route line between the places. Press play and the photos and videos of each place grow out of its marker, one after the other, while the map stays in view.
 
 The integration reads a plain folder tree, for example a share on a NAS. There is no cloud service and no separate photo server.
 
@@ -95,11 +95,13 @@ autoplay: true
 |---|---|---|
 | `trip` | newest trip | Folder name of the trip to start with. |
 | `height` | `70vh` | Any CSS length. |
-| `layout` | `auto` | `split` shows map and photo side by side, `overlay` shows the photo over the map. `auto` picks split from 800 px wide. |
+| `view` | `trip` | What the map shows while playing. `trip` keeps the whole trip in view, `world` shows the world with the trip in the middle, `place` flies to each place. |
+| `max_zoom` | `6` | Closest zoom for the `trip` view. A lower number shows more of the world around the trip. |
+| `photo_size` | `70` | Largest size of a photo, as a percentage of the card. A photo is made smaller when that keeps its marker in view. |
 | `autoplay` | `false` | Start playing when the card loads. |
 | `photo_seconds` | `6` | Time per photo. |
 | `video_seconds` | `15` | Longest time per video. Videos play without sound. |
-| `place_zoom` | `12` | Zoom level when the map is at a place. |
+| `place_zoom` | `12` | Zoom level for `view: place`. |
 | `route_color` | accent colour | Colour of the route and the markers. |
 | `entry` | all | Title or id of one config entry, when there are several folders. |
 

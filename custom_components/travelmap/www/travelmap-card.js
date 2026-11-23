@@ -2,28 +2,32 @@
  * Travel map card for Home Assistant.
  *
  * Shows the trips of the Travel map integration on Home Assistant's own map
- * (<ha-map>): one numbered marker per place, a route line between the places
- * and a playback mode that flies from place to place and shows the photos and
- * videos of each place.
+ * (<ha-map>): one numbered marker per place and a route line between the
+ * places. The map fills the card; during playback each photo and video grows
+ * out of the marker of its place and goes back into it.
  *
  *   type: custom:travelmap-card
  *   trip: 2026-japan        # optional, folder name of the trip to start with
  *   height: 70vh            # optional, any CSS length
- *   layout: auto            # auto | split | overlay
+ *   view: trip              # trip | world | place: what the map shows while playing
+ *   max_zoom: 6             # closest zoom for the trip view
+ *   photo_size: 70          # size of a photo, as a percentage of the card
  *   autoplay: false
  *   photo_seconds: 6
  *   video_seconds: 15
- *   place_zoom: 12
+ *   place_zoom: 12          # zoom level for view: place
  *   route_color: "#e87722"
  */
 
-const VERSION = "0.1.1";
+const VERSION = "0.2.0";
 
 const DEFAULTS = {
   entry: undefined,
   trip: undefined,
   height: "70vh",
-  layout: "auto",
+  view: "trip",
+  max_zoom: 6,
+  photo_size: 70,
   autoplay: false,
   photo_seconds: 6,
   video_seconds: 15,
@@ -31,9 +35,12 @@ const DEFAULTS = {
   route_color: undefined,
 };
 
-const SPLIT_MIN_WIDTH = 800;
+const VIEWS = ["trip", "world", "place"];
+const WORLD_ZOOM = 2;
 const FLY_MS = 2600;
-const FADE_MS = 700;
+const SETTLE_MS = 1400;
+const GROW_MS = 900;
+const FADE_MS = 600;
 const SIGN_EXPIRES_SECONDS = 900;
 const RETRY_MS = 30000;
 
@@ -57,15 +64,17 @@ const TEXT = {
     error: "Travel map",
     form_trip: "Trip to start with (folder name)",
     form_height: "Height (CSS length, for example 70vh)",
-    form_layout: "Layout",
+    form_view: "What the map shows while playing",
+    form_max_zoom: "Closest zoom for the whole trip",
+    form_photo_size: "Photo size, as a percentage of the card",
     form_autoplay: "Start playing right away",
     form_photo_seconds: "Seconds per photo",
     form_video_seconds: "Longest time per video, in seconds",
-    form_place_zoom: "Zoom level at a place",
+    form_place_zoom: "Zoom level when flying to each place",
     form_route_color: "Route colour",
-    layout_auto: "Automatic",
-    layout_split: "Map and photo side by side",
-    layout_overlay: "Photo over the map",
+    view_trip: "The whole trip",
+    view_world: "The world",
+    view_place: "Fly to each place",
   },
   nl: {
     name: "Reiskaart",
@@ -86,15 +95,17 @@ const TEXT = {
     error: "Reiskaart",
     form_trip: "Reis om mee te beginnen (mapnaam)",
     form_height: "Hoogte (CSS-lengte, bijvoorbeeld 70vh)",
-    form_layout: "Indeling",
+    form_view: "Wat de kaart toont tijdens het afspelen",
+    form_max_zoom: "Dichtste zoom voor de hele reis",
+    form_photo_size: "Fotogrootte, als percentage van de kaart",
     form_autoplay: "Meteen afspelen",
     form_photo_seconds: "Seconden per foto",
     form_video_seconds: "Langste tijd per video, in seconden",
-    form_place_zoom: "Zoomniveau bij een plek",
+    form_place_zoom: "Zoomniveau bij naar elke plek vliegen",
     form_route_color: "Kleur van de route",
-    layout_auto: "Automatisch",
-    layout_split: "Kaart en foto naast elkaar",
-    layout_overlay: "Foto over de kaart",
+    view_trip: "De hele reis",
+    view_world: "De wereld",
+    view_place: "Naar elke plek vliegen",
   },
 };
 
@@ -113,44 +124,49 @@ const STYLE = `
   ha-card { overflow: hidden; height: 100%; }
   .frame {
     position: relative;
-    display: flex;
     overflow: hidden;
     background: #111;
     color: #fff;
   }
   .frame:fullscreen { height: 100vh !important; }
-  .map { position: relative; flex: 1 1 auto; min-width: 0; }
+  .map { position: absolute; inset: 0; }
   ha-map { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .media {
-    position: relative;
-    flex: 0 0 0;
-    overflow: hidden;
-    background: #000;
-    transition: flex-basis 0.5s ease;
-  }
-  .frame.split.playing .media { flex-basis: 60%; }
-  .frame.overlay .media {
+  .stage {
     position: absolute; inset: 0; z-index: 5;
-    opacity: 0; pointer-events: none;
+    overflow: hidden; pointer-events: none;
+  }
+  .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stage line {
+    stroke-width: 3; stroke-linecap: round; opacity: 0;
     transition: opacity ${FADE_MS}ms ease;
   }
-  .frame.overlay.showing .media { opacity: 1; }
-  .media img, .media video {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    object-fit: contain; opacity: 0;
-    transition: opacity ${FADE_MS}ms ease;
+  .stage line.show { opacity: 0.9; }
+  /* A photo grows out of the marker of its place: the transform origin is
+     set to the marker's position when the photo is placed. */
+  .photo {
+    position: absolute; box-sizing: border-box;
+    border: 4px solid #fff; border-radius: 12px; overflow: hidden;
+    background: #000;
+    box-shadow: 0 12px 44px rgba(0,0,0,.6);
+    transform: scale(0.02); opacity: 0;
+    transition: transform ${GROW_MS}ms cubic-bezier(.2,.8,.2,1), opacity ${FADE_MS}ms ease;
   }
-  .media .show { opacity: 1; }
+  .photo.show { transform: scale(1); opacity: 1; }
+  .photo.leave { transform: scale(1); opacity: 0; }
+  .photo img, .photo video {
+    display: block; width: 100%; height: 100%; object-fit: cover;
+  }
   @keyframes travelmap-drift-a {
-    from { transform: scale(1); } to { transform: scale(1.08) translate(-1%, 1%); }
+    from { transform: scale(1); } to { transform: scale(1.07) translate(-1%, 1%); }
   }
   @keyframes travelmap-drift-b {
-    from { transform: scale(1.08) translate(1%, -1%); } to { transform: scale(1); }
+    from { transform: scale(1.07) translate(1%, -1%); } to { transform: scale(1); }
   }
   .drift-a { animation: travelmap-drift-a var(--drift-ms, 7000ms) linear forwards; }
   .drift-b { animation: travelmap-drift-b var(--drift-ms, 7000ms) linear forwards; }
   @media (prefers-reduced-motion: reduce) {
     .drift-a, .drift-b { animation: none; }
+    .photo { transform: none; transition: opacity ${FADE_MS}ms ease; }
   }
   .topbar {
     position: absolute; top: 0; left: 0; right: 0; z-index: 10;
@@ -204,17 +220,16 @@ class TravelmapCard extends HTMLElement {
         { name: "trip", selector: { text: {} } },
         { name: "height", selector: { text: {} } },
         {
-          name: "layout",
+          name: "view",
           selector: {
             select: {
               mode: "dropdown",
-              options: ["auto", "split", "overlay"].map((value) => ({
-                value,
-                label: text[`layout_${value}`],
-              })),
+              options: VIEWS.map((value) => ({ value, label: text[`view_${value}`] })),
             },
           },
         },
+        { name: "max_zoom", selector: { number: { min: 1, max: 18, mode: "slider" } } },
+        { name: "photo_size", selector: { number: { min: 30, max: 95, mode: "slider" } } },
         { name: "autoplay", selector: { boolean: {} } },
         { name: "photo_seconds", selector: { number: { min: 1, max: 120, mode: "box" } } },
         { name: "video_seconds", selector: { number: { min: 1, max: 600, mode: "box" } } },
@@ -250,21 +265,22 @@ class TravelmapCard extends HTMLElement {
     for (const [key, value] of Object.entries(config || {})) {
       if (value !== undefined && value !== null && value !== "") merged[key] = value;
     }
-    if (!["auto", "split", "overlay"].includes(merged.layout)) {
-      throw new Error("layout must be auto, split or overlay");
+    if (!VIEWS.includes(merged.view)) {
+      throw new Error("view must be trip, world or place");
     }
     const previous = this._config;
     this._config = merged;
     if (!this._built) return;
     this._frame.style.height = merged.height;
-    this._applyLayout();
     if (previous.trip !== merged.trip || previous.entry !== merged.entry) {
       this._selectInitialTrip();
     } else if (
       previous.route_color !== merged.route_color ||
-      previous.place_zoom !== merged.place_zoom
+      previous.view !== merged.view ||
+      previous.max_zoom !== merged.max_zoom
     ) {
-      this._drawTrip(false);
+      this._stop();
+      this._drawTrip(true);
     }
   }
 
@@ -300,8 +316,6 @@ class TravelmapCard extends HTMLElement {
   disconnectedCallback() {
     this._stop();
     clearTimeout(this._retryTimer);
-    if (this._resizeObserver) this._resizeObserver.disconnect();
-    this._resizeObserver = undefined;
   }
 
   _t(key) {
@@ -309,18 +323,15 @@ class TravelmapCard extends HTMLElement {
   }
 
   _build() {
-    if (this._built) {
-      this._observeSize();
-      return;
-    }
+    if (this._built) return;
     this._built = true;
     const root = this.shadowRoot;
     root.innerHTML = `
       <style>${STYLE}</style>
       <ha-card>
-        <div class="frame overlay">
+        <div class="frame">
           <div class="map"></div>
-          <div class="media" aria-live="off"></div>
+          <div class="stage"><svg aria-hidden="true"></svg></div>
           <div class="topbar">
             <select class="trip"></select>
             <button class="play" type="button"></button>
@@ -333,7 +344,8 @@ class TravelmapCard extends HTMLElement {
     `;
     this._frame = root.querySelector(".frame");
     this._mapHost = root.querySelector(".map");
-    this._media = root.querySelector(".media");
+    this._stage = root.querySelector(".stage");
+    this._svg = root.querySelector(".stage svg");
     this._select = root.querySelector("select.trip");
     this._playButton = root.querySelector("button.play");
     this._fullscreenButton = root.querySelector("button.fullscreen");
@@ -351,21 +363,6 @@ class TravelmapCard extends HTMLElement {
     this._fullscreenButton.addEventListener("click", () => this._toggleFullscreen());
     this._frame.addEventListener("pointermove", () => this._pointerActive());
     this._applyTexts();
-    this._observeSize();
-  }
-
-  _observeSize() {
-    if (this._resizeObserver || typeof ResizeObserver === "undefined") return;
-    this._resizeObserver = new ResizeObserver(() => this._applyLayout());
-    this._resizeObserver.observe(this._frame);
-  }
-
-  _applyLayout() {
-    const wanted = this._config.layout;
-    const split =
-      wanted === "split" || (wanted === "auto" && this._frame.clientWidth >= SPLIT_MIN_WIDTH);
-    this._frame.classList.toggle("split", split);
-    this._frame.classList.toggle("overlay", !split);
   }
 
   _applyTexts() {
@@ -532,23 +529,31 @@ class TravelmapCard extends HTMLElement {
   }
 
   _markerElement(number) {
+    // The map positions the outer element with its own transform, so all
+    // styling, and the scale of the active marker, goes on the inner one.
     const element = document.createElement("div");
-    element.textContent = String(number);
-    element.style.cssText = [
-      "width:30px", "height:30px", "box-sizing:border-box", "border-radius:50%",
+    element.style.cssText = "width:30px;height:30px;cursor:pointer";
+    const dot = document.createElement("div");
+    dot.textContent = String(number);
+    dot.style.cssText = [
+      "width:100%", "height:100%", "box-sizing:border-box", "border-radius:50%",
       "display:flex", "align-items:center", "justify-content:center",
-      "font:600 14px/1 sans-serif", "cursor:pointer",
+      "font:600 14px/1 sans-serif",
       "box-shadow:0 1px 4px rgba(0,0,0,.5)", "transition:transform .3s ease",
     ].join(";");
+    element.appendChild(dot);
     return element;
   }
 
   _styleMarker(element, active) {
     const color = this._routeColor();
-    element.style.background = active ? color : "#fff";
-    element.style.color = active ? "#fff" : "#111";
-    element.style.border = `3px solid ${active ? "#fff" : color}`;
-    element.style.transform = active ? "scale(1.25)" : "scale(1)";
+    const dot = element.firstElementChild;
+    dot.style.background = active ? color : "#fff";
+    dot.style.color = active ? "#fff" : "#111";
+    dot.style.border = `3px solid ${active ? "#fff" : color}`;
+    dot.style.transform = active ? "scale(1.3)" : "scale(1)";
+    // Places close together overlap in the overview; the active one goes on top.
+    element.style.zIndex = active ? "5" : "";
   }
 
   _drawTrip(fit) {
@@ -561,7 +566,7 @@ class TravelmapCard extends HTMLElement {
     );
     this._activePlaceId = undefined;
     this._markers = new Map();
-    this._map.zoom = Number(this._config.place_zoom) || DEFAULTS.place_zoom;
+    this._map.zoom = this._number("max_zoom");
 
     this._map.editableLocations = this._places.map((place, index) => {
       const element = this._markerElement(index + 1);
@@ -598,15 +603,22 @@ class TravelmapCard extends HTMLElement {
     this._showCaption();
   }
 
+  _number(key) {
+    const value = Number(this._config[key]);
+    return Number.isFinite(value) && value > 0 ? value : DEFAULTS[key];
+  }
+
   _fitTrip(fly) {
+    // The overview: the whole trip, or the world with the trip in the middle.
     if (!this._map || this._places.length === 0) return;
     const points = this._places.map((place) => [place.latitude, place.longitude]);
-    this._map.fitBounds(points, { zoom: 14, pad: 0.25, fly });
+    const zoom = this._config.view === "world" ? WORLD_ZOOM : this._number("max_zoom");
+    this._map.fitBounds(points, { zoom, pad: 0.3, fly });
   }
 
   _flyTo(place) {
     this._map.fitBounds([[place.latitude, place.longitude]], {
-      zoom: Number(this._config.place_zoom) || DEFAULTS.place_zoom,
+      zoom: this._number("place_zoom"),
       fly: true,
     });
   }
@@ -646,7 +658,7 @@ class TravelmapCard extends HTMLElement {
   _toggle() {
     if (this._playing) {
       this._stop();
-      this._fitTrip(true);
+      this._fitTrip(this._config.view === "place");
       this._showCaption();
       return;
     }
@@ -664,8 +676,8 @@ class TravelmapCard extends HTMLElement {
     this._playing = false;
     if (this._wake) this._wake();
     if (!this._built) return;
-    this._frame.classList.remove("playing", "showing");
-    this._clearMedia();
+    this._frame.classList.remove("playing");
+    this._clearStage();
     this._setActive(undefined);
     this._updatePlayButton();
   }
@@ -675,10 +687,19 @@ class TravelmapCard extends HTMLElement {
     this._generation += 1;
     if (this._wake) this._wake();
     const generation = this._generation;
+    const resuming = this._playing;
     this._playing = true;
     this._frame.classList.add("playing");
+    this._clearStage();
     this._updatePlayButton();
     this._pointerActive();
+    if (!resuming && this._config.view !== "place") {
+      // Start from the overview, so every marker is on screen. No flight:
+      // the map is usually there already, and a flight to where the map
+      // already is breaks the Leaflet fallback engine.
+      this._fitTrip(false);
+      await this._sleep(SETTLE_MS);
+    }
 
     let index = startIndex;
     while (this._alive(generation)) {
@@ -725,9 +746,12 @@ class TravelmapCard extends HTMLElement {
   async _playPlace(generation, place) {
     this._setActive(place.id);
     this._showCaption(place);
-    this._frame.classList.remove("showing");
-    this._flyTo(place);
-    await this._sleep(FLY_MS);
+    if (this._config.view === "place") {
+      this._flyTo(place);
+      await this._sleep(FLY_MS);
+    } else {
+      await this._sleep(500);
+    }
     const media = place.media || [];
     if (media.length === 0) {
       await this._sleep(2000);
@@ -736,14 +760,14 @@ class TravelmapCard extends HTMLElement {
     for (let i = 0; i < media.length; i += 1) {
       if (!this._alive(generation)) return;
       this._showCaption(place, media[i], i, media.length);
-      await this._showMedia(generation, media[i]);
+      await this._showMedia(generation, place, media[i]);
     }
     if (!this._alive(generation)) return;
-    this._frame.classList.remove("showing");
-    if (this._frame.classList.contains("overlay")) {
-      await this._sleep(FADE_MS);
-      this._clearMedia();
-    }
+    // The last photo goes back into the marker it came from.
+    for (const card of this._stage.querySelectorAll(".photo")) card.classList.remove("show");
+    for (const line of this._svg.querySelectorAll("line")) line.classList.remove("show");
+    await this._sleep(GROW_MS);
+    if (this._alive(generation)) this._clearStage();
   }
 
   async _signedUrl(path) {
@@ -755,9 +779,66 @@ class TravelmapCard extends HTMLElement {
     return this._hass.hassUrl ? this._hass.hassUrl(signed.path) : signed.path;
   }
 
-  async _showMedia(generation, item) {
+  _markerPoint(placeId) {
+    // Where the marker of the place is on screen, relative to the card.
+    const frame = this._frame.getBoundingClientRect();
+    const marker = this._markers.get(placeId);
+    const rect = marker && marker.isConnected ? marker.getBoundingClientRect() : undefined;
+    let x = frame.width / 2;
+    let y = frame.height / 2;
+    if (rect && rect.width > 0) {
+      x = rect.left + rect.width / 2 - frame.left;
+      y = rect.top + rect.height / 2 - frame.top;
+    }
+    return {
+      x: Math.min(Math.max(x, 0), frame.width),
+      y: Math.min(Math.max(y, 0), frame.height),
+      width: frame.width,
+      height: frame.height,
+    };
+  }
+
+  _placePhoto(card, point, ratio) {
+    // As large as the setting allows, beside the marker where there is room,
+    // so the place stays visible next to its photo.
+    const size = Math.min(Math.max(this._number("photo_size"), 30), 95) / 100;
+    const margin = 16;
+    const top = 64;
+    const bottom = 84;
+    const gap = 48;
+    let maxWidth = Math.max(point.width * size, 120);
+    // Keep the marker in view when the larger side has room for a decent photo.
+    const beside = Math.max(point.x, point.width - point.x) - gap - margin;
+    if (beside >= point.width * 0.4) maxWidth = Math.min(maxWidth, beside);
+    const maxHeight = Math.max((point.height - top - bottom) * Math.min(size + 0.15, 1), 90);
+    let width = maxWidth;
+    let height = width / ratio;
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * ratio;
+    }
+    const clamp = (value, low, high) => Math.min(Math.max(value, low), Math.max(low, high));
+    const left =
+      point.x < point.width / 2
+        ? clamp(point.x + gap, margin, point.width - width - margin)
+        : clamp(point.x - gap - width, margin, point.width - width - margin);
+    const y = clamp(point.y - height / 2, top, point.height - height - bottom);
+    card.style.left = `${left}px`;
+    card.style.top = `${y}px`;
+    card.style.width = `${width}px`;
+    card.style.height = `${height}px`;
+    card.style.transformOrigin = `${point.x - left}px ${point.y - y}px`;
+    // The connecting line ends at the edge of the photo nearest the marker.
+    return {
+      x: clamp(point.x, left, left + width),
+      y: clamp(point.y, y, y + height),
+    };
+  }
+
+  async _showMedia(generation, place, item) {
     let element;
     let seconds;
+    let ratio;
     try {
       const url = await this._signedUrl(item.url);
       if (!this._alive(generation)) return;
@@ -771,39 +852,61 @@ class TravelmapCard extends HTMLElement {
           element.addEventListener("loadeddata", resolve, { once: true });
           element.addEventListener("error", () => reject(new Error("video")), { once: true });
         });
-        const limit = Number(this._config.video_seconds) || DEFAULTS.video_seconds;
+        const limit = this._number("video_seconds");
         seconds = Number.isFinite(element.duration) ? Math.min(element.duration, limit) : limit;
+        ratio = element.videoWidth / element.videoHeight;
       } else {
         element = document.createElement("img");
         element.alt = "";
         element.decoding = "async";
         element.src = url;
         await element.decode();
-        seconds = Number(this._config.photo_seconds) || DEFAULTS.photo_seconds;
+        seconds = this._number("photo_seconds");
+        ratio = element.naturalWidth / element.naturalHeight;
         element.className = Math.random() < 0.5 ? "drift-a" : "drift-b";
-        element.style.setProperty("--drift-ms", `${seconds * 1000 + FADE_MS * 2}ms`);
+        element.style.setProperty("--drift-ms", `${seconds * 1000 + GROW_MS}ms`);
       }
     } catch (err) {
       // A file that cannot be shown is skipped; the rest of the place plays on.
       return;
     }
     if (!this._alive(generation)) return;
+    if (!Number.isFinite(ratio) || ratio <= 0) ratio = 1.5;
 
-    const previous = Array.from(this._media.children);
-    this._media.appendChild(element);
-    // Force a style pass so the fade starts from transparent.
-    void element.offsetWidth;
-    element.classList.add("show");
-    this._frame.classList.add("showing");
+    const point = this._markerPoint(place.id);
+    const card = document.createElement("div");
+    card.className = "photo";
+    card.appendChild(element);
+    const edge = this._placePhoto(card, point, ratio);
+
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", point.x);
+    line.setAttribute("y1", point.y);
+    line.setAttribute("x2", edge.x);
+    line.setAttribute("y2", edge.y);
+    line.setAttribute("stroke", this._routeColor());
+
+    const oldCards = Array.from(this._stage.querySelectorAll(".photo"));
+    const oldLines = Array.from(this._svg.querySelectorAll("line"));
+    this._svg.appendChild(line);
+    this._stage.appendChild(card);
+    // Force a style pass so the photo starts small, at the marker.
+    void card.offsetWidth;
+    card.classList.add("show");
+    line.classList.add("show");
     if (item.type === "video") element.play().catch(() => undefined);
-    for (const old of previous) old.classList.remove("show");
-    setTimeout(() => previous.forEach((old) => old.remove()), FADE_MS + 100);
+    // The photo before it fades away underneath.
+    for (const old of oldCards) old.classList.replace("show", "leave");
+    for (const old of oldLines) old.classList.remove("show");
+    setTimeout(() => [...oldCards, ...oldLines].forEach((old) => old.remove()), GROW_MS);
 
     await this._sleep(seconds * 1000);
   }
 
-  _clearMedia() {
-    if (this._media) this._media.replaceChildren();
+  _clearStage() {
+    if (!this._stage) return;
+    for (const card of this._stage.querySelectorAll(".photo")) card.remove();
+    this._svg.replaceChildren();
   }
 
   _sleep(ms) {
