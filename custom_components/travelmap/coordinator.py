@@ -20,6 +20,7 @@ from .const import (
     MISSING_FOLDER_INTERVAL,
 )
 from .scanner import EMPTY_LIBRARY, Library, scan_library
+from .settings import TravelmapSettings
 
 type TravelmapConfigEntry = ConfigEntry[TravelmapCoordinator]
 
@@ -52,6 +53,7 @@ class TravelmapCoordinator(DataUpdateCoordinator[Library]):
         # The integration loads before its folder exists, so there is always
         # a library, if only an empty one.
         self.data = EMPTY_LIBRARY
+        self.settings = TravelmapSettings(hass, entry.entry_id)
 
     async def _async_update_data(self) -> Library:
         try:

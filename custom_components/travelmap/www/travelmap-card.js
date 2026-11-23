@@ -8,6 +8,7 @@
  *
  *   type: custom:travelmap-card
  *   trip: 2026-japan        # optional, folder name of one trip; all trips when left out
+ *   group: Asia             # optional, name of a group made in the Travel map panel
  *   height: 70vh            # optional, any CSS length
  *   view: world             # world | trip | place: what the map shows while playing
  *   projection: flat        # flat | globe
@@ -25,17 +26,20 @@
  *   route_color: "#e87722"
  *   name_position: top-center   # where on the photo the place name goes, or none
  *   year_position: top-right    # where on the photo the year of the trip goes, or none
+ *   marker_icon: mdi:kangaroo   # optional: an icon, or the address of a picture (/local/...)
+ *   labels: few             # few | all | none: the names on the map
  *   marker_size: 14         # diameter of a marker in pixels
  *   show_numbers: false     # number the markers in order of travel
  *   route_line: false       # line between the places
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.8.0";
+const VERSION = "0.9.0";
 
 const DEFAULTS = {
   entry: undefined,
   trip: undefined,
+  group: undefined,
   height: "70vh",
   view: "world",
   projection: "flat",
@@ -53,6 +57,8 @@ const DEFAULTS = {
   route_color: undefined,
   name_position: "top-center",
   year_position: "top-right",
+  marker_icon: undefined,
+  labels: "few",
   marker_size: 14,
   show_numbers: false,
   route_line: false,
@@ -112,9 +118,26 @@ const POSITIONS = [
   "bottom-right",
 ];
 // The inhabited world, corner to corner: what the world view fits.
+// The whole world, pole to pole, as far as a flat map reaches.
 const WORLD_BOUNDS = [
-  [-56, -168],
-  [74, 178],
+  [-84, -180],
+  [84, 180],
+];
+const GROUP_PREFIX = "group:";
+const LABEL_MODES = ["few", "all", "none"];
+// With labels: few, the only names left on the map: countries, capitals and
+// cities of a million people or more.
+const LABELS_KEPT = [
+  "label-boundary-country-large",
+  "label-boundary-country-medium",
+  "label-boundary-country-small",
+  "label-place-capital",
+  "label-place-city",
+];
+const BIG_CITY_FILTER = [
+  "all",
+  ["==", ["get", "kind"], "city"],
+  [">=", ["to-number", ["get", "population"], 0], 1000000],
 ];
 const FLY_MS = 2600;
 // Home Assistant's zoom levels are one higher than those of the map engine.
@@ -174,6 +197,13 @@ const TEXT = {
     "position_bottom-left": "Bottom left",
     "position_bottom-center": "Bottom centre",
     "position_bottom-right": "Bottom right",
+    form_group: "Only this group (name from the Travel map panel)",
+    form_marker_icon: "Marker icon (for example mdi:kangaroo, or /local/picture.svg)",
+    form_labels: "Names on the map",
+    labels_few: "Countries, capitals and big cities",
+    labels_all: "Everything",
+    labels_none: "None",
+    group_label: "Group",
     form_marker_size: "Marker size",
     form_show_numbers: "Number the markers",
     form_route_line: "Line between the places",
@@ -230,6 +260,13 @@ const TEXT = {
     "position_bottom-left": "Linksonder",
     "position_bottom-center": "Midden onder",
     "position_bottom-right": "Rechtsonder",
+    form_group: "Alleen deze groep (naam uit het paneel Reiskaart)",
+    form_marker_icon: "Icoon van de marker (bijvoorbeeld mdi:kangaroo, of /local/plaatje.svg)",
+    form_labels: "Namen op de kaart",
+    labels_few: "Landen, hoofdsteden en grote steden",
+    labels_all: "Alles",
+    labels_none: "Geen",
+    group_label: "Groep",
     form_marker_size: "Grootte van de marker",
     form_show_numbers: "Markers nummeren",
     form_route_line: "Lijn tussen de plekken",
@@ -368,6 +405,7 @@ class TravelmapCard extends HTMLElement {
     return {
       schema: [
         { name: "trip", selector: { text: {} } },
+        { name: "group", selector: { text: {} } },
         { name: "height", selector: { text: {} } },
         {
           name: "view",
@@ -430,9 +468,19 @@ class TravelmapCard extends HTMLElement {
             },
           },
         })),
+        { name: "marker_icon", selector: { text: {} } },
+        {
+          name: "labels",
+          selector: {
+            select: {
+              mode: "dropdown",
+              options: LABEL_MODES.map((value) => ({ value, label: text[`labels_${value}`] })),
+            },
+          },
+        },
         {
           name: "marker_size",
-          selector: { number: { min: 6, max: 40, mode: "slider", unit_of_measurement: "px" } },
+          selector: { number: { min: 6, max: 60, mode: "slider", unit_of_measurement: "px" } },
         },
         { name: "show_numbers", selector: { boolean: {} } },
         { name: "route_line", selector: { boolean: {} } },
@@ -451,6 +499,7 @@ class TravelmapCard extends HTMLElement {
     this._language = "en";
     this._entries = [];
     this._trips = [];
+    this._groups = [];
     this._tripId = undefined;
     this._places = [];
     this._markers = new Map();
@@ -476,6 +525,9 @@ class TravelmapCard extends HTMLElement {
         throw new Error(`${key} must be one of: ${POSITIONS.join(", ")}`);
       }
     }
+    if (!LABEL_MODES.includes(merged.labels)) {
+      throw new Error("labels must be few, all or none");
+    }
     if (!MAP_STYLES.includes(merged.map_style)) {
       throw new Error("map_style must be meppie or default");
     }
@@ -484,13 +536,20 @@ class TravelmapCard extends HTMLElement {
     }
     const previous = this._config;
     this._config = merged;
+    this._rawConfig = config || {};
     if (!this._built) return;
     this._frame.style.height = merged.height;
-    if (previous.trip !== merged.trip || previous.entry !== merged.entry) {
+    if (previous.labels !== merged.labels) this._applyLabels();
+    if (
+      previous.trip !== merged.trip ||
+      previous.group !== merged.group ||
+      previous.entry !== merged.entry
+    ) {
       this._selectInitialTrip();
     } else if (
       previous.route_color !== merged.route_color ||
       previous.marker_size !== merged.marker_size ||
+      previous.marker_icon !== merged.marker_icon ||
       previous.show_numbers !== merged.show_numbers ||
       previous.route_line !== merged.route_line ||
       previous.view !== merged.view ||
@@ -700,13 +759,19 @@ class TravelmapCard extends HTMLElement {
       option.textContent = this._t("all_trips");
       this._select.appendChild(option);
     }
+    for (const group of this._groups) {
+      const option = document.createElement("option");
+      option.value = GROUP_PREFIX + group.id;
+      option.textContent = `${this._t("group_label")}: ${group.name}`;
+      this._select.appendChild(option);
+    }
     for (const trip of this._trips) {
       const option = document.createElement("option");
       option.value = trip.id;
       option.textContent = trip.title || trip.id;
       this._select.appendChild(option);
     }
-    this._select.hidden = this._trips.length < 2;
+    this._select.hidden = this._trips.length < 2 && this._groups.length === 0;
     if (this._trips.length === 0) {
       const waiting = this._shownEntries().find((entry) => entry.available === false);
       this._message(
@@ -718,8 +783,16 @@ class TravelmapCard extends HTMLElement {
     clearTimeout(this._retryTimer);
     const wanted = this._config.trip;
     const found = this._trips.find((trip) => trip.id === wanted || trip.title === wanted);
+    const wantedGroup = this._config.group;
+    const group = this._groups.find((g) => g.id === wantedGroup || g.name === wantedGroup);
     // Without a wish, every trip is on the map at once.
-    this._tripId = found ? found.id : this._trips.length > 1 ? ALL_TRIPS : this._trips[0].id;
+    this._tripId = group
+      ? GROUP_PREFIX + group.id
+      : found
+        ? found.id
+        : this._trips.length > 1
+          ? ALL_TRIPS
+          : this._trips[0].id;
     this._select.value = this._tripId;
     this._drawTrip(true);
   }
@@ -733,6 +806,7 @@ class TravelmapCard extends HTMLElement {
 
   _fetchLibraryView() {
     this._trips = this._shownEntries().flatMap((entry) => entry.trips || []);
+    this._groups = this._shownEntries().flatMap((entry) => entry.groups || []);
   }
 
   _retryLater() {
@@ -755,18 +829,40 @@ class TravelmapCard extends HTMLElement {
     return this._trips.find((trip) => trip.id === this._tripId);
   }
 
+  _group() {
+    // The selected group from the Travel map panel, when one is selected.
+    if (!String(this._tripId || "").startsWith(GROUP_PREFIX)) return undefined;
+    return this._groups.find((group) => GROUP_PREFIX + group.id === this._tripId);
+  }
+
   _shownTrips() {
-    return this._tripId === ALL_TRIPS ? this._trips : this._trips.filter((t) => t.id === this._tripId);
+    if (this._tripId === ALL_TRIPS) return this._trips;
+    const group = this._group();
+    if (group) {
+      const ids = new Set(group.items.map((item) => item.trip));
+      return this._trips.filter((trip) => ids.has(trip.id));
+    }
+    return this._trips.filter((t) => t.id === this._tripId);
   }
 
   _playablePlaces() {
     // A place is playable when it has a position. Its key, trip folder plus
     // place folder, is its identity; the same place name may occur in two trips.
-    return this._shownTrips().flatMap((trip) =>
+    const playable = (trip, only) =>
       trip.places
         .filter((place) => place.latitude !== null && place.longitude !== null)
-        .map((place) => ({ ...place, key: `${trip.id}/${place.id}`, trip }))
-    );
+        .filter((place) => only === undefined || place.id === only)
+        .map((place) => ({ ...place, key: `${trip.id}/${place.id}`, trip }));
+    const group = this._group();
+    if (!group) return this._shownTrips().flatMap((trip) => playable(trip));
+    // A group plays in its own order; an item is a whole trip or one place.
+    const seen = new Set();
+    return group.items
+      .flatMap((item) => {
+        const trip = this._trips.find((candidate) => candidate.id === item.trip);
+        return trip ? playable(trip, item.place) : [];
+      })
+      .filter((place) => !seen.has(place.key) && seen.add(place.key));
   }
 
   // ----- Map --------------------------------------------------------------
@@ -779,24 +875,50 @@ class TravelmapCard extends HTMLElement {
   }
 
   _markerSize() {
-    return Math.min(Math.max(this._number("marker_size"), 6), 40);
+    // An icon needs more room than a dot; a size that was set always wins.
+    const set = this._rawConfig && this._rawConfig.marker_size;
+    const size = set ? this._number("marker_size") : this._markerIcon() ? 30 : DEFAULTS.marker_size;
+    return Math.min(Math.max(size, 6), 60);
+  }
+
+  _markerIcon() {
+    const icon = String(this._config.marker_icon || "").trim();
+    if (!icon) return undefined;
+    // "mdi:kangaroo" and the like are icons; anything else is a picture.
+    return /^[a-z0-9_-]+:[a-z0-9_-]+$/i.test(icon) ? { icon } : { image: icon };
   }
 
   _markerElement(number) {
     // The map positions the outer element with its own transform, so all
     // styling, and the scale of the active marker, goes on the inner one.
     const size = this._markerSize();
-    const numbered = this._config.show_numbers === true && size >= 18;
+    const custom = this._markerIcon();
+    const numbered = !custom && this._config.show_numbers === true && size >= 18;
     const element = document.createElement("div");
     element.style.cssText = `width:${size}px;height:${size}px;cursor:pointer`;
     const dot = document.createElement("div");
     if (numbered) dot.textContent = String(number);
     dot.style.cssText = [
-      "width:100%", "height:100%", "box-sizing:border-box", "border-radius:50%",
+      "width:100%", "height:100%", "box-sizing:border-box",
       "display:flex", "align-items:center", "justify-content:center",
       `font:600 ${Math.round(size * 0.47)}px/1 sans-serif`,
-      "box-shadow:0 1px 4px rgba(0,0,0,.5)", "transition:transform .3s ease",
+      "transition:transform .3s ease",
     ].join(";");
+    if (custom && custom.icon) {
+      const icon = document.createElement("ha-icon");
+      icon.setAttribute("icon", custom.icon);
+      icon.style.cssText = `--mdc-icon-size:${size}px;display:flex;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))`;
+      dot.appendChild(icon);
+    } else if (custom) {
+      const image = document.createElement("img");
+      image.src = custom.image;
+      image.alt = "";
+      image.style.cssText = "width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))";
+      dot.appendChild(image);
+    } else {
+      dot.style.borderRadius = "50%";
+      dot.style.boxShadow = "0 1px 4px rgba(0,0,0,.5)";
+    }
     element.appendChild(dot);
     return element;
   }
@@ -804,13 +926,18 @@ class TravelmapCard extends HTMLElement {
   _styleMarker(element, active) {
     const color = this._routeColor();
     const dot = element.firstElementChild;
+    dot.style.transform = active ? "scale(1.5)" : "scale(1)";
+    // Places close together overlap in the overview; the active one goes on top.
+    element.style.zIndex = active ? "5" : "";
+    if (this._markerIcon()) {
+      // An icon takes the marker colour; a picture keeps its own colours.
+      dot.style.color = color;
+      return;
+    }
     dot.style.background = active ? color : "#fff";
     dot.style.color = active ? "#fff" : "#111";
     const border = Math.max(2, Math.round(this._markerSize() / 8));
     dot.style.border = `${border}px solid ${active ? "#fff" : color}`;
-    dot.style.transform = active ? "scale(1.5)" : "scale(1)";
-    // Places close together overlap in the overview; the active one goes on top.
-    element.style.zIndex = active ? "5" : "";
   }
 
   _drawTrip(fit) {
@@ -868,7 +995,8 @@ class TravelmapCard extends HTMLElement {
   _fitTrip(fly) {
     // The overview: the whole world, or the whole trip.
     if (!this._map) return;
-    const world = this._config.view === "world";
+    // Only view: trip stays on the trip; otherwise the overview is the world.
+    const world = this._config.view !== "trip";
     if (!world && this._places.length === 0) return;
     const points = world
       ? WORLD_BOUNDS
@@ -996,6 +1124,34 @@ class TravelmapCard extends HTMLElement {
     this._applyRelief();
   }
 
+  _applyLabels() {
+    // Fewer names on the map: less to load and redraw after every move.
+    const gl = this._engineMap();
+    if (!gl || !gl.getStyle) return;
+    try {
+      const mode = this._config.labels;
+      const style = gl.getStyle();
+      for (const layer of (style && style.layers) || []) {
+        if (layer.type !== "symbol") continue;
+        const show = mode === "all" || (mode === "few" && LABELS_KEPT.includes(layer.id));
+        const wanted = show ? "visible" : "none";
+        // Only write on a change: writing triggers the event this runs on.
+        if ((gl.getLayoutProperty(layer.id, "visibility") || "visible") !== wanted) {
+          gl.setLayoutProperty(layer.id, "visibility", wanted);
+        }
+        if (layer.id === "label-place-city") {
+          if (this._cityFilter === undefined) this._cityFilter = layer.filter || null;
+          const filter = mode === "few" ? BIG_CITY_FILTER : this._cityFilter;
+          if (JSON.stringify(gl.getFilter(layer.id) || null) !== JSON.stringify(filter)) {
+            gl.setFilter(layer.id, filter);
+          }
+        }
+      }
+    } catch (err) {
+      // The map keeps the names it had.
+    }
+  }
+
   _applyRelief() {
     // The vector map knows forest, sand and ice only from close by. Zoomed
     // out, a satellite picture of the land goes under the sea and the labels,
@@ -1074,10 +1230,12 @@ class TravelmapCard extends HTMLElement {
       gl.on("styledata", () => {
         this._applyProjection();
         this._applyRelief();
+        this._applyLabels();
       });
     }
     apply();
     this._applyRelief();
+    this._applyLabels();
     return true;
   }
 
@@ -1107,13 +1265,18 @@ class TravelmapCard extends HTMLElement {
   _showCaption(place, item, index, total) {
     if (!place) {
       const trip = this._trip();
-      if (!trip && this._tripId !== ALL_TRIPS) {
+      const group = this._group();
+      if (!trip && this._tripId !== ALL_TRIPS && !group) {
         this._placeEl.textContent = "";
         this._subEl.textContent = "";
         return;
       }
       const country = trip && trip.country ? ` · ${trip.country}` : "";
-      this._placeEl.textContent = trip ? trip.title || trip.id : this._t("all_trips");
+      this._placeEl.textContent = trip
+        ? trip.title || trip.id
+        : group
+          ? group.name
+          : this._t("all_trips");
       const hint = this._places.length ? ` · ${this._t("press_play")}` : "";
       const noun = this._t(this._places.length === 1 ? "place_one" : "places");
       this._subEl.textContent = `${this._places.length} ${noun}${country}${hint}`;

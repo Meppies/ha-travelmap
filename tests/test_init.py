@@ -22,6 +22,7 @@ from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.travelmap.const import CONF_PATH, DOMAIN
 from custom_components.travelmap.diagnostics import async_get_config_entry_diagnostics
+from custom_components.travelmap.settings import clean_groups
 
 from .conftest import setup_integration
 
@@ -211,5 +212,13 @@ async def test_diagnostics(hass: HomeAssistant, mock_entry: MockConfigEntry, car
     assert result["places_without_coordinates"] == 2
     assert result["places_per_trip"] == [4, 1]
     assert result["coordinate_sources"] == {"exif": 1, "trip.yaml": 2}
+    assert (result["groups"], result["custom_order"]) == (0, False)
     assert result["last_scan"] is not None
     assert "japan" not in json.dumps(result)
+
+
+def test_clean_groups() -> None:
+    """Whatever is stored or sent comes out in one shape."""
+    assert clean_groups("nonsense") == []
+    messy = ["x", {"name": ""}, {"name": "A", "id": "keep", "items": ["x", {"place": "p"}]}]
+    assert clean_groups(messy) == [{"id": "keep", "name": "A", "items": []}]

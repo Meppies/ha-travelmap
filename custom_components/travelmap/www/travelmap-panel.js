@@ -48,6 +48,27 @@ const TEXT = {
     error_position: "Fill in both latitude and longitude, or neither.",
     error_other: "Saving failed",
     photos_here: "photos in this folder",
+    refresh: "Refresh",
+    refreshing: "Scanning the folders…",
+    refreshed: "Scanned: {trips} trips, {photos} photos and videos.",
+    move_up: "Move up",
+    move_down: "Move down",
+    order_help: "The arrows set the order of playing: of the trips, and of the places within a trip.",
+    groups: "Groups",
+    groups_help: "A group is your own selection of trips and places, in your own order. Choose it in the card to play only that.",
+    new_group: "New group",
+    group_name: "Name of the group",
+    group_items: "In this group, in order of playing",
+    group_empty: "Nothing in this group yet.",
+    group_add: "Add a trip or a place",
+    add: "Add",
+    remove: "Remove",
+    whole_trip: "whole trip",
+    delete_group: "Delete group",
+    delete_confirm: "Click again to delete",
+    saved_group: "Group saved.",
+    deleted_group: "Group deleted.",
+    error_name: "Give the group a name.",
   },
   nl: {
     heading: "Reiskaart",
@@ -89,6 +110,27 @@ const TEXT = {
     error_position: "Vul zowel breedte- als lengtegraad in, of geen van beide.",
     error_other: "Opslaan is mislukt",
     photos_here: "foto's in deze map",
+    refresh: "Vernieuwen",
+    refreshing: "De mappen worden gescand…",
+    refreshed: "Gescand: {trips} reizen, {photos} foto's en video's.",
+    move_up: "Omhoog",
+    move_down: "Omlaag",
+    order_help: "Met de pijlen bepaal je de afspeelvolgorde: van de reizen, en van de plekken binnen een reis.",
+    groups: "Groepen",
+    groups_help: "Een groep is je eigen selectie van reizen en plekken, in je eigen volgorde. Kies hem in de kaart om alleen die af te spelen.",
+    new_group: "Nieuwe groep",
+    group_name: "Naam van de groep",
+    group_items: "In deze groep, in afspeelvolgorde",
+    group_empty: "Nog niets in deze groep.",
+    group_add: "Een reis of plek toevoegen",
+    add: "Toevoegen",
+    remove: "Verwijderen",
+    whole_trip: "hele reis",
+    delete_group: "Groep verwijderen",
+    delete_confirm: "Klik nogmaals om te verwijderen",
+    saved_group: "Groep opgeslagen.",
+    deleted_group: "Groep verwijderd.",
+    error_name: "Geef de groep een naam.",
   },
 };
 
@@ -108,12 +150,21 @@ const STYLE = `
     background: var(--app-header-background-color, var(--primary-color));
     color: var(--app-header-text-color, #fff);
   }
-  header h1 { font-size: 20px; font-weight: 400; margin: 0; }
+  header h1 { font-size: 20px; font-weight: 400; margin: 0; flex: 1; }
+  header button {
+    font: inherit; font-weight: 600; padding: 8px 16px; border-radius: 999px; cursor: pointer;
+    border: 2px solid currentColor; background: transparent; color: inherit;
+  }
+  header button:disabled { opacity: 0.5; cursor: default; }
+  header button:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+  .notice { padding: 8px 16px 0; max-width: 1280px; margin: 0 auto; font-size: 15px; min-height: 1.5em; }
+  .side { display: flex; flex-direction: column; gap: 16px; align-self: start; }
+  h2.box-title { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
   .layout {
     display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 16px;
     padding: 16px; max-width: 1280px; margin: 0 auto; box-sizing: border-box;
-    height: calc(100% - var(--header-height, 56px)); overflow: auto;
   }
+  .scroll { height: calc(100% - var(--header-height, 56px)); overflow: auto; }
   @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
   .box {
     background: var(--card-background-color); border-radius: 12px;
@@ -122,17 +173,36 @@ const STYLE = `
   .intro, .help { color: var(--secondary-text-color); font-size: 15px; margin: 0 0 12px; }
   .tree { list-style: none; margin: 0; padding: 0; }
   .tree ul { list-style: none; margin: 0 0 6px; padding: 0 0 0 20px; }
-  .tree button {
-    display: flex; width: 100%; gap: 8px; align-items: baseline; text-align: left;
+  .line { display: flex; gap: 4px; align-items: center; }
+  .pick {
+    display: flex; flex: 1; min-width: 0; gap: 8px; align-items: baseline; text-align: left;
     font: inherit; color: inherit; background: none; border: 2px solid transparent;
     border-radius: 8px; padding: 8px 10px; cursor: pointer;
   }
-  .tree button:hover { background: var(--secondary-background-color); }
-  .tree button:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 1px; }
-  .tree button[aria-current="true"] {
+  .pick:hover, .small:hover { background: var(--secondary-background-color); }
+  .pick:focus-visible, .small:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 1px; }
+  .pick[aria-current="true"] {
     border-color: var(--primary-color); background: var(--secondary-background-color); font-weight: 600;
   }
-  .tree .trip > button .label { font-weight: 600; }
+  .small {
+    flex: 0 0 36px; height: 36px; font: inherit; font-size: 18px; line-height: 1; color: inherit;
+    background: none; border: 1px solid var(--divider-color); border-radius: 8px; cursor: pointer;
+  }
+  .small:disabled { opacity: 0.3; cursor: default; }
+  .tree .trip > .line .label { font-weight: 600; }
+  .items { list-style: none; margin: 0 0 16px; padding: 0; max-width: 520px; }
+  .items li { display: flex; gap: 4px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--divider-color); }
+  .items .label { flex: 1; overflow-wrap: anywhere; }
+  .addrow { display: flex; gap: 8px; max-width: 520px; margin-bottom: 16px; }
+  .addrow select {
+    flex: 1; min-width: 0; font: inherit; color: inherit; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--outline-color, var(--divider-color)); background: var(--secondary-background-color);
+  }
+  .addrow button, .actions .plain {
+    font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 999px; cursor: pointer;
+    border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color);
+  }
+  .wide { width: 100%; margin-top: 8px; }
   .tree .mark { flex: 0 0 1.2em; }
   .tree .label { flex: 1; overflow-wrap: anywhere; }
   .tree .meta { color: var(--secondary-text-color); font-size: 14px; white-space: nowrap; }
@@ -156,7 +226,7 @@ const STYLE = `
   h3 { font-size: 17px; margin: 20px 0 4px; }
   ha-selector { display: block; max-width: 720px; margin-bottom: 12px; }
   .actions { display: flex; gap: 16px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-  .actions button {
+  .actions button[type=submit] {
     font: inherit; font-weight: 600; padding: 10px 22px; border-radius: 999px; border: none; cursor: pointer;
     background: var(--primary-color); color: var(--text-primary-color, #fff);
   }
@@ -182,6 +252,7 @@ class TravelmapPanel extends HTMLElement {
     this._status = { text: "", error: false };
     this._selectorReady = false;
     this._position = undefined;
+    this._draft = undefined;
   }
 
   set hass(hass) {
@@ -292,17 +363,104 @@ class TravelmapPanel extends HTMLElement {
       <header>
         <ha-menu-button></ha-menu-button>
         <h1>${escapeHtml(this._t("heading"))}</h1>
+        <button type="button" class="refresh">⟳ ${escapeHtml(this._t("refresh"))}</button>
       </header>
-      <div class="layout">
-        <div class="box"><p class="intro"></p><ul class="tree"></ul></div>
-        <div class="box editor"></div>
+      <div class="scroll">
+        <div class="notice" role="status" aria-live="polite"></div>
+        <div class="layout">
+          <div class="side">
+            <div class="box"><p class="intro"></p><ul class="tree"></ul></div>
+            <div class="box groups"></div>
+          </div>
+          <div class="box editor"></div>
+        </div>
       </div>
     `;
+    root.querySelector(".refresh").addEventListener("click", () => this._refresh());
     const menu = root.querySelector("ha-menu-button");
     menu.hass = this._hass;
     menu.narrow = this._narrow;
     this._renderTree();
+    this._renderGroups();
     this._renderEditor();
+  }
+
+  _notice(text) {
+    const notice = this.shadowRoot.querySelector(".notice");
+    if (notice) notice.textContent = text || "";
+  }
+
+  async _refresh() {
+    // Scan the folders now, so new trips, places and photos show up.
+    const button = this.shadowRoot.querySelector(".refresh");
+    button.disabled = true;
+    this._notice(this._t("refreshing"));
+    try {
+      const result = await this._hass.callWS({ type: "travelmap/rescan" });
+      this._entries = result.entries || [];
+      this._state = "ready";
+      const trips = this._entries.flatMap((entry) => entry.trips);
+      const photos = trips.reduce(
+        (sum, trip) => sum + trip.places.reduce((n, place) => n + place.media.length, 0),
+        0
+      );
+      this._draft = undefined;
+      this._renderTree();
+      this._renderGroups();
+      this._renderEditor();
+      this._notice(
+        this._t("refreshed").replace("{trips}", trips.length).replace("{photos}", photos)
+      );
+    } catch (err) {
+      this._notice(`▲ ${this._t("error_other")}: ${(err && err.message) || err}`);
+    }
+    button.disabled = false;
+  }
+
+  async _arrange(entry, fields) {
+    // Order and groups are saved straight away; the answer is the new state.
+    try {
+      const result = await this._hass.callWS({ type: "travelmap/arrange", entry_id: entry.entry_id, ...fields });
+      entry.trips = result.trips;
+      entry.groups = result.groups;
+      this._notice("");
+      return true;
+    } catch (err) {
+      const known = err && TEXT.en[`error_${err.code}`] ? this._t(`error_${err.code}`) : undefined;
+      this._notice(`▲ ${known || `${this._t("error_other")}: ${(err && err.message) || err}`}`);
+      return false;
+    }
+  }
+
+  async _move(entry, trip, place, direction) {
+    if (place === undefined) {
+      const order = entry.trips.map((t) => t.id);
+      const index = order.indexOf(trip.id);
+      order.splice(index + direction, 0, order.splice(index, 1)[0]);
+      await this._arrange(entry, { order });
+    } else {
+      const places = trip.places.filter((p) => p.id !== ROOT_PLACE).map((p) => p.id);
+      const index = places.indexOf(place.id);
+      places.splice(index + direction, 0, places.splice(index, 1)[0]);
+      await this._arrange(entry, { place_order: { trip: trip.id, places } });
+    }
+    this._renderTree();
+    this._renderEditor();
+  }
+
+  _moveButtons(index, count, onMove) {
+    return [-1, 1].map((direction) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "small";
+      button.textContent = direction < 0 ? "↑" : "↓";
+      const label = this._t(direction < 0 ? "move_up" : "move_down");
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.disabled = direction < 0 ? index === 0 : index === count - 1;
+      button.addEventListener("click", () => onMove(direction));
+      return button;
+    });
   }
 
   _renderTree() {
@@ -322,47 +480,224 @@ class TravelmapPanel extends HTMLElement {
         : this._t(this._entries.length ? "no_trips" : "no_integration");
       return;
     }
-    intro.textContent = this._t("intro");
+    intro.textContent = `${this._t("intro")} ${this._t("order_help")}`;
     const mark = (ok) =>
       `<span class="mark" title="${escapeHtml(this._t(ok ? "has_position" : "no_position"))}">${ok ? "✓" : "▲"}</span>`;
-    for (const { entry, trip } of trips) {
-      const own = this._ownPlace(trip);
-      const subs = trip.places.filter((place) => place.id !== ROOT_PLACE);
-      const complete = trip.places.length > 0 && trip.places.every((p) => p.latitude !== null);
-      const item = document.createElement("li");
-      item.className = "trip";
-      const count = subs.length
-        ? `${subs.length} ${this._t(subs.length === 1 ? "place_one" : "places")}`
-        : "";
-      item.innerHTML = `
-        <button type="button">
-          ${mark(complete)}
-          <span class="label">${escapeHtml(trip.id)}</span>
-          <span class="meta">${escapeHtml([trip.year, count].filter(Boolean).join(" · "))}</span>
-        </button>`;
-      const button = item.querySelector("button");
-      this._wire(button, { entry: entry.entry_id, trip: trip.id, place: own ? ROOT_PLACE : undefined });
-      if (subs.length) {
-        const list = document.createElement("ul");
-        for (const place of subs) {
-          const sub = document.createElement("li");
-          sub.innerHTML = `
-            <button type="button">
-              ${mark(place.latitude !== null)}
-              <span class="label">${escapeHtml(place.id)}</span>
-            </button>`;
-          this._wire(sub.querySelector("button"), { entry: entry.entry_id, trip: trip.id, place: place.id, sub: true });
-          list.appendChild(sub);
+    for (const entry of this._entries) {
+      entry.trips.forEach((trip, tripIndex) => {
+        const own = this._ownPlace(trip);
+        const subs = trip.places.filter((place) => place.id !== ROOT_PLACE);
+        const complete = trip.places.length > 0 && trip.places.every((p) => p.latitude !== null);
+        const item = document.createElement("li");
+        item.className = "trip";
+        const count = subs.length
+          ? `${subs.length} ${this._t(subs.length === 1 ? "place_one" : "places")}`
+          : "";
+        item.innerHTML = `
+          <div class="line"><button type="button" class="pick">
+            ${mark(complete)}
+            <span class="label">${escapeHtml(trip.id)}</span>
+            <span class="meta">${escapeHtml([trip.year, count].filter(Boolean).join(" · "))}</span>
+          </button></div>`;
+        const line = item.querySelector(".line");
+        this._wire(line.querySelector(".pick"), { entry: entry.entry_id, trip: trip.id, place: own ? ROOT_PLACE : undefined });
+        line.append(
+          ...this._moveButtons(tripIndex, entry.trips.length, (direction) =>
+            this._move(entry, trip, undefined, direction)
+          )
+        );
+        if (subs.length) {
+          const list = document.createElement("ul");
+          subs.forEach((place, placeIndex) => {
+            const sub = document.createElement("li");
+            sub.innerHTML = `
+              <div class="line"><button type="button" class="pick">
+                ${mark(place.latitude !== null)}
+                <span class="label">${escapeHtml(place.id)}</span>
+              </button></div>`;
+            const subLine = sub.querySelector(".line");
+            this._wire(subLine.querySelector(".pick"), { entry: entry.entry_id, trip: trip.id, place: place.id, sub: true });
+            subLine.append(
+              ...this._moveButtons(placeIndex, subs.length, (direction) =>
+                this._move(entry, trip, place, direction)
+              )
+            );
+            list.appendChild(sub);
+          });
+          item.appendChild(list);
         }
-        item.appendChild(list);
-      }
-      tree.appendChild(item);
+        tree.appendChild(item);
+      });
     }
+  }
+
+  // ----- Groups -------------------------------------------------------------
+
+  _renderGroups() {
+    const box = this.shadowRoot.querySelector(".groups");
+    if (!box) return;
+    const entry = this._entries[0];
+    if (this._state !== "ready" || !entry || entry.trips.length === 0) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML = `
+      <h2 class="box-title">${escapeHtml(this._t("groups"))}</h2>
+      <p class="intro">${escapeHtml(this._t("groups_help"))}</p>
+      <ul class="tree"></ul>
+      <div class="actions"><button type="button" class="plain wide">＋ ${escapeHtml(this._t("new_group"))}</button></div>`;
+    const list = box.querySelector(".tree");
+    for (const owner of this._entries) {
+      for (const group of owner.groups || []) {
+        const item = document.createElement("li");
+        item.innerHTML = `<div class="line"><button type="button" class="pick">
+            <span class="label">${escapeHtml(group.name)}</span>
+            <span class="meta">${group.items.length}</span>
+          </button></div>`;
+        const button = item.querySelector(".pick");
+        const current = this._selected && this._selected.group === group.id && this._selected.entry === owner.entry_id;
+        if (current) button.setAttribute("aria-current", "true");
+        button.addEventListener("click", () => this._openGroup(owner, group));
+        list.appendChild(item);
+      }
+    }
+    box.querySelector(".plain").addEventListener("click", () => this._openGroup(entry, undefined));
+  }
+
+  _openGroup(entry, group) {
+    this._selected = { entry: entry.entry_id, group: group ? group.id : "" };
+    this._draft = group
+      ? { id: group.id, name: group.name, items: group.items.map((item) => ({ ...item })) }
+      : { id: undefined, name: "", items: [] };
+    this._status = { text: "", error: false };
+    this._renderTree();
+    this._renderGroups();
+    this._renderEditor();
+  }
+
+  _itemLabel(entry, item) {
+    const trip = entry.trips.find((t) => t.id === item.trip);
+    const title = trip ? trip.title : item.trip;
+    if (!item.place) return `${title} (${this._t("whole_trip")})`;
+    const place = trip && trip.places.find((p) => p.id === item.place);
+    return `${title} › ${place ? place.name : item.place}`;
+  }
+
+  _renderGroupEditor(editor, entry) {
+    const draft = this._draft;
+    const has = (candidate) =>
+      draft.items.some((item) => item.trip === candidate.trip && (item.place || "") === (candidate.place || ""));
+    const choices = entry.trips.flatMap((trip) => {
+      const subs = trip.places.filter((place) => place.id !== ROOT_PLACE);
+      return [{ trip: trip.id }, ...subs.map((place) => ({ trip: trip.id, place: place.id }))];
+    }).filter((candidate) => !has(candidate));
+    editor.innerHTML = `<form novalidate>
+      <h2>${escapeHtml(draft.name || this._t("new_group"))}</h2>
+      <div class="field">
+        <label for="group-name">${escapeHtml(this._t("group_name"))}</label>
+        <input id="group-name" value="${escapeHtml(draft.name)}" />
+      </div>
+      <h3>${escapeHtml(this._t("group_items"))}</h3>
+      ${draft.items.length ? "" : `<p class="help">${escapeHtml(this._t("group_empty"))}</p>`}
+      <ol class="items"></ol>
+      <div class="field"><label for="group-add">${escapeHtml(this._t("group_add"))}</label></div>
+      <div class="addrow">
+        <select id="group-add">${choices.map((c, i) => `<option value="${i}">${escapeHtml(this._itemLabel(entry, c))}</option>`).join("")}</select>
+        <button type="button" class="add" ${choices.length ? "" : "disabled"}>${escapeHtml(this._t("add"))}</button>
+      </div>
+      <div class="actions">
+        <button type="submit">${escapeHtml(this._t("save"))}</button>
+        ${draft.id ? `<button type="button" class="plain delete">${escapeHtml(this._t("delete_group"))}</button>` : ""}
+        <span class="status" role="status" aria-live="polite"></span>
+      </div></form>`;
+    const form = editor.querySelector("form");
+    const name = form.querySelector("#group-name");
+    name.addEventListener("input", () => {
+      draft.name = name.value;
+      this._setStatus(this._t("unsaved"), false);
+    });
+    const redraw = () => {
+      this._status = { text: this._t("unsaved"), error: false };
+      this._renderGroupEditor(editor, entry);
+    };
+    const list = form.querySelector(".items");
+    draft.items.forEach((item, index) => {
+      const row = document.createElement("li");
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = `${index + 1}. ${this._itemLabel(entry, item)}`;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "small";
+      remove.textContent = "✕";
+      remove.title = this._t("remove");
+      remove.setAttribute("aria-label", `${this._t("remove")}: ${this._itemLabel(entry, item)}`);
+      remove.addEventListener("click", () => {
+        draft.items.splice(index, 1);
+        redraw();
+      });
+      row.append(
+        label,
+        ...this._moveButtons(index, draft.items.length, (direction) => {
+          draft.items.splice(index + direction, 0, draft.items.splice(index, 1)[0]);
+          redraw();
+        }),
+        remove
+      );
+      list.appendChild(row);
+    });
+    form.querySelector(".add").addEventListener("click", () => {
+      const choice = choices[Number(form.querySelector("#group-add").value)];
+      if (!choice) return;
+      draft.items.push(choice);
+      redraw();
+    });
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      if (!draft.name.trim()) {
+        this._setStatus(this._t("error_name"), true);
+        return;
+      }
+      const others = (entry.groups || []).filter((group) => group.id !== draft.id);
+      const before = new Set((entry.groups || []).map((group) => group.id));
+      if (!(await this._arrange(entry, { groups: [...others, draft] }))) return;
+      const saved = draft.id
+        ? entry.groups.find((group) => group.id === draft.id)
+        : entry.groups.find((group) => !before.has(group.id));
+      this._status = { text: this._t("saved_group"), error: false };
+      if (saved) this._openGroupKeepingStatus(entry, saved);
+    });
+    const remove = form.querySelector(".delete");
+    if (remove) {
+      remove.addEventListener("click", async () => {
+        if (!remove.dataset.armed) {
+          remove.dataset.armed = "1";
+          remove.textContent = this._t("delete_confirm");
+          return;
+        }
+        const others = (entry.groups || []).filter((group) => group.id !== draft.id);
+        if (!(await this._arrange(entry, { groups: others }))) return;
+        this._selected = undefined;
+        this._draft = undefined;
+        this._renderGroups();
+        this._renderEditor();
+        this._notice(this._t("deleted_group"));
+      });
+    }
+    this._setStatus(this._status.text, this._status.error);
+  }
+
+  _openGroupKeepingStatus(entry, group) {
+    const status = this._status;
+    this._openGroup(entry, group);
+    this._setStatus(status.text, status.error);
   }
 
   _wire(button, target) {
     const current =
       this._selected &&
+      this._selected.group === undefined &&
       this._selected.entry === target.entry &&
       this._selected.trip === target.trip &&
       !!this._selected.sub === !!target.sub &&
@@ -370,9 +705,11 @@ class TravelmapPanel extends HTMLElement {
     if (current) button.setAttribute("aria-current", "true");
     button.addEventListener("click", () => {
       this._selected = target;
+      this._draft = undefined;
       this._status = { text: "", error: false };
       this._position = undefined;
       this._renderTree();
+      this._renderGroups();
       this._renderEditor();
     });
   }
@@ -380,6 +717,13 @@ class TravelmapPanel extends HTMLElement {
   _renderEditor() {
     const editor = this.shadowRoot.querySelector(".editor");
     if (!editor) return;
+    if (this._selected && this._selected.group !== undefined && this._draft) {
+      const owner = this._entries.find((e) => e.entry_id === this._selected.entry);
+      if (owner) {
+        this._renderGroupEditor(editor, owner);
+        return;
+      }
+    }
     const { entry, trip, place } = this._find();
     if (!trip) {
       editor.innerHTML = `<p class="intro empty">${escapeHtml(this._state === "ready" ? this._t("intro") : "")}</p>`;
@@ -546,6 +890,7 @@ class TravelmapPanel extends HTMLElement {
     try {
       const result = await this._hass.callWS(message);
       entry.trips = result.trips;
+      entry.groups = result.groups;
       this._position = undefined;
       this._status = { text: this._t("saved"), error: false };
       this._renderTree();

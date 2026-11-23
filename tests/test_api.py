@@ -166,3 +166,107 @@ async def test_websocket_save(
         {"type": "travelmap/save", "entry_id": "entry1", "trip": "2026-japan", "title": "x"}
     )
     assert (await reader.receive_json())["error"]["code"] == "unauthorized"
+
+
+async def test_arrange_and_rescan(
+    hass: HomeAssistant,
+    mock_entry: MockConfigEntry,
+    library_root: Path,
+    hass_ws_client: WebSocketGenerator,
+    hass_read_only_access_token: str,
+    hass_storage: dict,
+) -> None:
+    """The panel sets the order of trips and places, keeps groups, and rescans."""
+    await setup_integration(hass, mock_entry)
+    client = await hass_ws_client(hass)
+
+    async def call(kind: str, **fields: object) -> dict:
+        await client.send_json_auto_id({"type": f"travelmap/{kind}", **fields})
+        return await client.receive_json()
+
+    # Order of the trips; a trip that is not in the list comes after it.
+    response = await call("arrange", entry_id="entry1", order=["2025-loose", "gone", "2025-loose"])
+    assert [trip["id"] for trip in response["result"]["trips"]] == ["2025-loose", "2026-japan"]
+    assert hass_storage["travelmap.entry1"]["data"]["order"] == ["2025-loose", "gone"]
+
+    # Groups: named, ordered, and without what does not exist (any more).
+    groups = [
+        {
+            "name": " Asia ",
+            "items": [
+                {"trip": "2026-japan", "place": "kyoto"},
+                {"trip": "2025-loose"},
+                {"trip": "2026-japan", "place": "kyoto"},
+                {"trip": "2026-japan", "place": "nowhere"},
+                {"trip": "gone"},
+            ],
+        },
+        {"name": "  ", "items": []},
+    ]
+    response = await call("arrange", entry_id="entry1", groups=groups)
+    (group,) = response["result"]["groups"]
+    assert group["name"] == "Asia"
+    assert len(group["id"]) == 8
+    assert group["items"] == [{"trip": "2026-japan", "place": "kyoto"}, {"trip": "2025-loose"}]
+    # The stored group keeps the items whose folder may come back.
+    assert len(hass_storage["travelmap.entry1"]["data"]["groups"][0]["items"]) == 4
+    # Saving a group again keeps its id.
+    response = await call("arrange", entry_id="entry1", groups=[{**group, "name": "Azië"}])
+    assert response["result"]["groups"][0] == {**group, "name": "Azië"}
+
+    # Order of the places of a trip: written to trip.yaml.
+    response = await call(
+        "arrange",
+        entry_id="entry1",
+        place_order={"trip": "2026-japan", "places": ["osaka", "tokyo"]},
+    )
+    japan = next(trip for trip in response["result"]["trips"] if trip["id"] == "2026-japan")
+    assert [place["id"] for place in japan["places"]] == ["osaka", "tokyo", "kyoto", "nara"]
+    assert japan["places"][0]["source"] == "exif"
+
+    for fields, code in (
+        ({"entry_id": "other"}, "not_found"),
+        ({"entry_id": "entry1", "place_order": {"trip": "nope", "places": []}}, "not_found"),
+        (
+            {"entry_id": "entry1", "place_order": {"trip": "2026-japan", "places": ["x"]}},
+            "not_found",
+        ),
+        ({"entry_id": "entry1", "groups": [{"items": []}]}, "invalid_format"),
+    ):
+        assert (await call("arrange", **fields))["error"]["code"] == code, fields
+    order = {"trip": "2026-japan", "places": ["tokyo"]}
+    trip_file = library_root / "2026-japan" / "trip.yaml"
+    good = trip_file.read_text(encoding="utf-8")
+    trip_file.write_text("places: [a]\n", encoding="utf-8")
+    response = await call("arrange", entry_id="entry1", place_order=order)
+    assert response["error"]["code"] == "trip_file_invalid"
+    trip_file.write_text(good, encoding="utf-8")
+    with patch("custom_components.travelmap.writer.os.replace", side_effect=PermissionError):
+        response = await call("arrange", entry_id="entry1", place_order=order)
+    assert response["error"]["code"] == "write_failed"
+
+    # New photos show up after a rescan.
+    (library_root / "2025-loose" / "a" / "new.jpg").write_bytes(b"jpg")
+    response = await call("rescan")
+    (entry,) = response["result"]["entries"]
+    assert len(entry["trips"][0]["places"][0]["media"]) == 2
+    assert entry["last_scan"] is not None
+
+    reader = await hass_ws_client(hass, hass_read_only_access_token)
+    for message in (
+        {"type": "travelmap/rescan"},
+        {"type": "travelmap/arrange", "entry_id": "entry1"},
+    ):
+        await reader.send_json_auto_id(message)
+        assert (await reader.receive_json())["error"]["code"] == "unauthorized"
+
+    # The settings come back after a restart, and go with the entry.
+    await hass.config_entries.async_reload(mock_entry.entry_id)
+    await hass.async_block_till_done()
+    response = await call("library")
+    (entry,) = response["result"]["entries"]
+    assert [trip["id"] for trip in entry["trips"]] == ["2025-loose", "2026-japan"]
+    assert entry["groups"][0]["name"] == "Azië"
+    await hass.config_entries.async_remove(mock_entry.entry_id)
+    await hass.async_block_till_done()
+    assert "travelmap.entry1" not in hass_storage

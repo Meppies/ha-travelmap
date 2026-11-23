@@ -101,6 +101,12 @@ The integration adds **Travel map** to the sidebar, for administrators. It lists
 
 Save writes to the `trip.yaml` of that trip, which is created when it does not exist. Everything else in the file is kept, including the comment block at its top; comments further down are not. The folder must be writable for Home Assistant, so the user of the network storage needs write access. The card picks the change up at its next round.
 
+**Refresh** at the top scans the folders straight away, so new trips, places and photos show up without waiting for the next scan.
+
+The arrows next to a trip or a place set the order of playing. The order of the trips is kept in Home Assistant; the order of the places within a trip is written to its `trip.yaml`, where it is also the order of the route.
+
+A **group** is your own selection of trips and places, in your own order: add whole trips or single places, move them with the arrows, and save. Groups are kept in Home Assistant, not in the folder. In the card a group appears in the list next to the trips, and `group: <name>` makes a card play only that group.
+
 The same positions can also be set under Settings → Devices & services → Travel map → cogwheel → Places and their coordinates.
 
 ### Options
@@ -121,9 +127,10 @@ autoplay: true
 
 | Option | Default | Meaning |
 |---|---|---|
+| `group` | none | Name of a group from the Travel map panel. The card then plays only that group, in its order. |
 | `trip` | all trips | Folder name of one trip. Left out, every place of every trip is on the map and plays in turn; the card then also offers a list to pick one trip. |
 | `height` | `70vh` | Any CSS length. |
-| `view` | `world` | What the map shows while playing. `world` shows the whole world, `trip` keeps the whole trip in view, `place` flies to each place. |
+| `view` | `world` | What the map shows while playing. `world` shows the whole world, `trip` keeps the whole trip in view, `place` flies to each place. With `world` and `place` the overview is the whole world from pole to pole. |
 | `projection` | `flat` | `flat` draws a flat world map. `globe` leaves the map as Home Assistant draws it, which is a globe when zoomed out. |
 | `max_zoom` | `6` | Closest zoom for the `trip` view. A lower number shows more of the world around the trip. |
 | `photo_size` | `70` | Width of a photo as a percentage of the card, 10 to 100. A photo is never taller than the card has room for, so a portrait photo comes out narrower. |
@@ -138,7 +145,9 @@ autoplay: true
 | `relief` | `true` | Zoomed out, show the land as a satellite picture with relief, so that snow, desert, forest and mountains are visible. See Known limitations for where it comes from. |
 | `name_position` | `top-center` | Where on the photo the place name is shown: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` or `none`. |
 | `year_position` | `top-right` | Where on the photo the year of the trip is shown; same values. The year comes from `start` in `trip.yaml`, otherwise from the folder name. |
-| `marker_size` | `14` | Diameter of a marker in pixels, 6 to 40. |
+| `marker_icon` | none | Your own marker in place of the dot: an icon such as `mdi:kangaroo`, or the address of a picture such as `/local/kangaroo.svg` (a file in the `www` folder of Home Assistant). An icon takes the marker colour; a picture keeps its own. |
+| `labels` | `few` | Names on the map. `few` shows countries, capitals and cities of a million people or more; `all` shows everything; `none` shows no names. |
+| `marker_size` | `14` | Size of a marker in pixels, 6 to 60. With a marker icon the default is 30. |
 | `show_numbers` | `false` | Number the markers in order of travel. Needs a marker of 18 pixels or more. |
 | `route_line` | `false` | Draw a line between the places, in order of travel. |
 | `photo_line` | `false` | Draw a line between a photo and the marker it came from. |

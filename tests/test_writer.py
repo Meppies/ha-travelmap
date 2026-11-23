@@ -9,6 +9,7 @@ import yaml
 
 from custom_components.travelmap.writer import (
     TripFileError,
+    reorder_places,
     update_trip_file,
     write_place_coordinates,
 )
@@ -122,3 +123,26 @@ def test_update_trip_fields(tmp_path: Path) -> None:
     empty = tmp_path / "Bali"
     empty.mkdir()
     assert update_trip_file(tmp_path, "Bali", {"title": None}).read_text() == ""
+
+
+def test_reorder_places(tmp_path: Path) -> None:
+    """The order of the places is the route; the rest of the file stays."""
+    trip = tmp_path / "trip"
+    trip.mkdir()
+    (trip / "trip.yml").write_text(EXISTING, encoding="utf-8")
+    path = reorder_places(tmp_path, "trip", ["nara", "kyoto"])
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert list(data["places"]) == ["nara", "kyoto", "tokyo"]
+    assert data["places"]["nara"] == {}
+    assert data["places"]["kyoto"] == {}
+    assert data["places"]["tokyo"]["name"] == "Tōkyō"
+    assert path.read_text(encoding="utf-8").startswith("# Metadata for one trip.")
+
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    assert (
+        reorder_places(tmp_path, "fresh", ["b", "a"]).read_text() == "places:\n  b: {}\n  a: {}\n"
+    )
+    (fresh / "trip.yaml").write_text("places: [a]\n", encoding="utf-8")
+    with pytest.raises(TripFileError):
+        reorder_places(tmp_path, "fresh", ["a"])

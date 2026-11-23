@@ -20,7 +20,7 @@ import probatio as vol
 from .const import DOMAIN, MEDIA_URL_PREFIX
 from .coordinator import TravelmapConfigEntry
 from .scanner import ROOT_PLACE, Trip
-from .writer import TripFileError, update_trip_file
+from .writer import TripFileError, reorder_places, update_trip_file
 
 
 def media_url(entry_id: str, trip: str, place: str, file: str) -> str:
@@ -59,6 +59,24 @@ def _trip_payload(entry_id: str, trip: Trip) -> dict[str, Any]:
     }
 
 
+def _entry_payload(entry: TravelmapConfigEntry) -> dict[str, Any]:
+    """Return everything the card and the panel need of one entry."""
+    coordinator = entry.runtime_data
+    library = coordinator.data
+    return {
+        "entry_id": entry.entry_id,
+        "title": entry.title,
+        "path": str(coordinator.root),
+        "available": coordinator.last_update_success,
+        "last_scan": coordinator.last_scan.isoformat() if coordinator.last_scan else None,
+        "trips": [
+            _trip_payload(entry.entry_id, trip)
+            for trip in coordinator.settings.ordered_trips(library)
+        ],
+        "groups": coordinator.settings.groups_for(library),
+    }
+
+
 @websocket_command({vol.Required("type"): f"{DOMAIN}/library"})
 @callback
 def websocket_library(
@@ -68,24 +86,79 @@ def websocket_library(
 ) -> None:
     """Return every trip of every loaded entry."""
     entries: list[TravelmapConfigEntry] = hass.config_entries.async_loaded_entries(DOMAIN)
-    connection.send_result(
-        msg["id"],
-        {
-            "entries": [
-                {
-                    "entry_id": entry.entry_id,
-                    "title": entry.title,
-                    "path": str(entry.runtime_data.root),
-                    "available": entry.runtime_data.last_update_success,
-                    "trips": [
-                        _trip_payload(entry.entry_id, trip)
-                        for trip in entry.runtime_data.data.trips
-                    ],
-                }
-                for entry in entries
-            ]
-        },
-    )
+    connection.send_result(msg["id"], {"entries": [_entry_payload(entry) for entry in entries]})
+
+
+@websocket_command({vol.Required("type"): f"{DOMAIN}/rescan"})
+@require_admin
+@async_response
+async def websocket_rescan(
+    hass: HomeAssistant,
+    connection: ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Scan the folders now, so new trips, places and photos show up."""
+    entries: list[TravelmapConfigEntry] = hass.config_entries.async_loaded_entries(DOMAIN)
+    for entry in entries:
+        await entry.runtime_data.async_refresh()
+    connection.send_result(msg["id"], {"entries": [_entry_payload(entry) for entry in entries]})
+
+
+ITEM_SCHEMA = vol.Schema({vol.Required("trip"): str, vol.Optional("place"): str})
+GROUP_SCHEMA = vol.Schema(
+    {
+        vol.Optional("id"): str,
+        vol.Required("name"): str,
+        vol.Optional("items", default=list): [ITEM_SCHEMA],
+    }
+)
+
+
+@websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/arrange",
+        vol.Required("entry_id"): str,
+        vol.Optional("order"): [str],
+        vol.Optional("groups"): [GROUP_SCHEMA],
+        vol.Optional("place_order"): vol.Schema(
+            {vol.Required("trip"): str, vol.Required("places"): [str]}
+        ),
+    }
+)
+@require_admin
+@async_response
+async def websocket_arrange(
+    hass: HomeAssistant,
+    connection: ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Save the order of the trips, the groups, or the order of a trip's places."""
+    entry: TravelmapConfigEntry | None = hass.config_entries.async_get_entry(msg["entry_id"])
+    if entry is None or entry.domain != DOMAIN or entry.state is not ConfigEntryState.LOADED:
+        connection.send_error(msg["id"], "not_found", "Entry not loaded")
+        return
+    coordinator = entry.runtime_data
+    if "place_order" in msg:
+        wanted = msg["place_order"]
+        trip = next((t for t in coordinator.data.trips if t.id == wanted["trip"]), None)
+        known = {place.id for place in trip.places} - {ROOT_PLACE} if trip else set()
+        if trip is None or not set(wanted["places"]) <= known:
+            connection.send_error(msg["id"], "not_found", "Unknown trip or place")
+            return
+        try:
+            await hass.async_add_executor_job(
+                reorder_places, coordinator.root, trip.id, wanted["places"]
+            )
+        except TripFileError:
+            connection.send_error(msg["id"], "trip_file_invalid", "trip.yaml is not valid YAML")
+            return
+        except OSError as err:
+            connection.send_error(msg["id"], "write_failed", str(err))
+            return
+        await coordinator.async_refresh()
+    if "order" in msg or "groups" in msg:
+        await coordinator.settings.async_save(msg.get("order"), msg.get("groups"))
+    connection.send_result(msg["id"], _entry_payload(entry))
 
 
 def _clean(value: Any) -> Any:
@@ -150,10 +223,7 @@ async def websocket_save(
         connection.send_error(msg["id"], "write_failed", str(err))
         return
     await coordinator.async_refresh()
-    connection.send_result(
-        msg["id"],
-        {"trips": [_trip_payload(entry.entry_id, t) for t in coordinator.data.trips]},
-    )
+    connection.send_result(msg["id"], _entry_payload(entry))
 
 
 class TravelmapMediaView(HomeAssistantView):

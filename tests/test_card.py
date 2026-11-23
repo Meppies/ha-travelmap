@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from pathlib import Path
 import re
 from types import SimpleNamespace
 from typing import Any
@@ -217,10 +218,9 @@ async def test_unregister_without_lovelace(
     assert "Could not remove the Travel map card resource" in caplog.text
 
 
-def test_card_has_no_duplicate_methods() -> None:
+@pytest.mark.parametrize("path", [CARD_PATH, card.PANEL_PATH])
+def test_no_duplicate_methods(path: Path) -> None:
     """A method defined twice silently replaces the first one."""
-    names = re.findall(
-        r"^  (?:static )?(?:async )?(?:get |set )?(\w+)\(", CARD_PATH.read_text(), re.M
-    )
+    names = re.findall(r"^  (?:static )?(?:async )?(?:get |set )?(\w+)\(", path.read_text(), re.M)
     duplicates = {name for name in names if names.count(name) > 1} - {"hass"}
     assert not duplicates

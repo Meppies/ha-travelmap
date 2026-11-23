@@ -38,6 +38,62 @@ def _apply(target: dict[str, Any], fields: dict[str, Any]) -> None:
             target[key] = value
 
 
+def _read(root: Path, trip: str) -> tuple[Path, str, dict[str, Any]]:
+    """Return the trip file, its leading comment block and its content."""
+    trip_dir = root / trip
+    path = next(
+        (trip_dir / name for name in TRIP_FILES if (trip_dir / name).is_file()),
+        trip_dir / TRIP_FILES[0],
+    )
+    header = ""
+    data: dict[str, Any] = {}
+    if path.is_file():
+        header, body = _split_header(path.read_text(encoding="utf-8"))
+        try:
+            loaded = yaml.safe_load(body)
+        except yaml.YAMLError as err:
+            raise TripFileError(str(err)) from err
+        if loaded is not None and not isinstance(loaded, dict):
+            raise TripFileError("not a mapping")
+        data = loaded or {}
+    return path, header, data
+
+
+def _write(path: Path, header: str, data: dict[str, Any]) -> Path:
+    """Write beside the file and swap, so a failure never leaves half a file."""
+    body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        temporary.write_text(header + (body if data else ""), encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def reorder_places(root: Path, trip: str, order: list[str]) -> Path:
+    """Put the places of a trip in the given order, which is the route.
+
+    The order of ``places`` in trip.yaml is the order of travel. Places that
+    had no entry yet get an empty one, so their position is recorded too.
+    """
+    path, header, data = _read(root, trip)
+    places = data.get("places")
+    if places is None:
+        places = {}
+    elif not isinstance(places, dict):
+        raise TripFileError("places is not a mapping")
+    ordered: dict[str, Any] = {}
+    for place in order:
+        entry = places.get(place)
+        ordered[place] = entry if isinstance(entry, dict) else {}
+    for place, entry in places.items():
+        ordered.setdefault(place, entry)
+    data["places"] = ordered
+    return _write(path, header, data)
+
+
 def update_trip_file(
     root: Path,
     trip: str,
@@ -56,22 +112,7 @@ def update_trip_file(
     are not kept. A file that is not valid YAML is left alone. Raises OSError
     when the folder is read-only.
     """
-    trip_dir = root / trip
-    path = next(
-        (trip_dir / name for name in TRIP_FILES if (trip_dir / name).is_file()),
-        trip_dir / TRIP_FILES[0],
-    )
-    header = ""
-    data: dict[str, Any] = {}
-    if path.is_file():
-        header, body = _split_header(path.read_text(encoding="utf-8"))
-        try:
-            loaded = yaml.safe_load(body)
-        except yaml.YAMLError as err:
-            raise TripFileError(str(err)) from err
-        if loaded is not None and not isinstance(loaded, dict):
-            raise TripFileError("not a mapping")
-        data = loaded or {}
+    path, header, data = _read(root, trip)
 
     _apply(data, trip_fields or {})
     if place == ROOT_PLACE:
@@ -92,16 +133,7 @@ def update_trip_file(
         places[place] = entry
         data["places"] = places
 
-    body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
-    # Write beside the file and swap, so a failure never leaves half a file.
-    temporary = path.with_name(f".{path.name}.tmp")
-    try:
-        temporary.write_text(header + (body if data else ""), encoding="utf-8")
-        os.replace(temporary, path)
-    except OSError:
-        temporary.unlink(missing_ok=True)
-        raise
-    return path
+    return _write(path, header, data)
 
 
 def write_place_coordinates(

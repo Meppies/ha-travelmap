@@ -8,7 +8,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
-from .api import TravelmapMediaView, websocket_library, websocket_save
+from .api import (
+    TravelmapMediaView,
+    websocket_arrange,
+    websocket_library,
+    websocket_rescan,
+    websocket_save,
+)
 from .card import async_register_card, async_unregister_card
 from .const import DOMAIN
 from .coordinator import (
@@ -17,6 +23,7 @@ from .coordinator import (
     folder_issue_id,
     missing_issue_id,
 )
+from .settings import TravelmapSettings
 
 PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -26,6 +33,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the websocket command and the media view."""
     async_register_command(hass, websocket_library)
     async_register_command(hass, websocket_save)
+    async_register_command(hass, websocket_arrange)
+    async_register_command(hass, websocket_rescan)
     hass.http.register_view(TravelmapMediaView())
     return True
 
@@ -33,6 +42,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: TravelmapConfigEntry) -> bool:
     """Set up Travel map from a config entry."""
     coordinator = TravelmapCoordinator(hass, entry)
+    await coordinator.settings.async_load()
     # A folder that is not there yet must not stop setup: the entities are
     # unavailable until it appears, and the coordinator keeps looking.
     await coordinator.async_refresh()
@@ -51,6 +61,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: TravelmapConfigEntry) -
     """Clean up the repair issues, and the card when no entry is left."""
     ir.async_delete_issue(hass, DOMAIN, missing_issue_id(entry.entry_id))
     ir.async_delete_issue(hass, DOMAIN, folder_issue_id(entry.entry_id))
+    await TravelmapSettings(hass, entry.entry_id).async_remove()
     remaining = [
         other
         for other in hass.config_entries.async_entries(DOMAIN)

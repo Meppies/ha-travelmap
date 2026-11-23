@@ -24,6 +24,8 @@ async def async_get_config_entry_diagnostics(
         "last_update_success": coordinator.last_update_success,
         "last_scan": coordinator.last_scan.isoformat() if coordinator.last_scan else None,
         "trips": len(library.trips),
+        "groups": len(coordinator.settings.data.groups),
+        "custom_order": bool(coordinator.settings.data.order),
         "places": library.place_count,
         "media_files": library.media_count,
         "places_without_coordinates": len(library.missing),
