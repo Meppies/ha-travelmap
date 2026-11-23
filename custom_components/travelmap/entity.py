@@ -26,4 +26,7 @@ class TravelmapEntity(CoordinatorEntity[TravelmapCoordinator]):
             manufacturer="Travel map",
             model=str(coordinator.root),
             entry_type=DeviceEntryType.SERVICE,
+            # The device page links to the integration page, where Configure
+            # opens the places and their coordinates.
+            configuration_url=f"homeassistant://config/integrations/integration/{DOMAIN}",
         )

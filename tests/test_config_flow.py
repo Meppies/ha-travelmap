@@ -192,8 +192,8 @@ async def test_options_coordinates(
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"trip": "2025-loose"}
     )
-    result = await hass.config_entries.options.async_configure(result["flow_id"], {"place": "a"})
-    # Nothing known in this trip: the map opens at home.
+    # One place only: no list to choose from. Nothing known: the map opens at home.
+    assert result["step_id"] == "coordinates"
     suggested = next(iter(result["data_schema"].schema)).description["suggested_value"]
     assert suggested == {"latitude": hass.config.latitude, "longitude": hass.config.longitude}
     result = await hass.config_entries.options.async_configure(
@@ -256,13 +256,33 @@ async def test_options_without_trips(
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"trip": "2025-loose"}
     )
-    result = await hass.config_entries.options.async_configure(result["flow_id"], {"place": "a"})
+    assert result["step_id"] == "coordinates"
     shutil.rmtree(library_root / "2025-loose" / "a")
     await mock_entry.runtime_data.async_refresh()
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"location": {"latitude": 1.0, "longitude": 2.0}}
     )
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "no_places")
+
+    # A trip folder that holds its photos itself: straight to its coordinates.
+    bali = library_root / "Bali"
+    bali.mkdir()
+    (bali / "b.jpg").write_bytes(b"jpg")
+    await mock_entry.runtime_data.async_refresh()
+    result = await _open_places(hass, mock_entry)
+    labels = [o["label"] for o in result["data_schema"].schema["trip"].config["options"]]
+    assert "Bali · 0/1" in labels
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"trip": "Bali"})
+    assert result["step_id"] == "coordinates"
+    assert result["description_placeholders"]["place"] == "Bali (/)"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"location": {"latitude": -8.4095, "longitude": 115.1889}}
+    )
+    assert result["description_placeholders"] == {"trip": "Bali", "place": "Bali"}
+    assert (bali / "trip.yaml").read_text() == "lat: -8.4095\nlon: 115.1889\n"
+    place = next(t for t in mock_entry.runtime_data.data.trips if t.id == "Bali").places[0]
+    assert (place.latitude, place.source) == (-8.4095, "trip.yaml")
+    shutil.rmtree(bali)
 
     # One trip only: its places are shown straight away.
     shutil.rmtree(library_root / "2025-loose")

@@ -17,7 +17,7 @@ The integration reads a plain folder tree, for example a share on a NAS. There i
 
 ## Folder layout
 
-One folder per trip, one subfolder per place.
+One folder per trip, one subfolder per place. A trip folder may also hold photos itself: it is then a place of its own, which suits a trip to one spot.
 
 ```
 trips/
@@ -28,7 +28,12 @@ trips/
       002.mp4
     kyoto/
       011.jpg
+  Bali/
+    001.jpg
+    002.jpg
 ```
+
+Folders deeper than that are not read.
 
 `trip.yaml` is optional and carries what the files cannot tell. You do not have to write it by hand: the coordinates can be set from Home Assistant (see Coordinates per place), which creates or updates the file for you.
 
@@ -47,6 +52,7 @@ places:
     lon: 135.7681
 ```
 
+- For photos in the trip folder itself, the coordinates are `lat` and `lon` at the top of `trip.yaml`, next to `title`.
 - The order of `places` is the order of travel, and so the order of the route. Folders that are not listed follow in alphabetical order.
 - A place takes its position from `trip.yaml`. Without an entry there, the EXIF GPS data of its first JPEG that has any is used. A place with neither gets no marker and is reported (see Repairs).
 - Folders whose name starts with `.`, `_`, `@` or `#` are skipped, which keeps Synology's `@eaDir` and `#recycle` out.
@@ -77,10 +83,10 @@ The folder can be changed later with Reconfigure. Add the integration again for 
 
 ### Coordinates per place
 
-Open the integration under Settings → Devices & services → Travel map and choose Configure → Places and their coordinates.
+Open the integration under Settings → Devices & services → Travel map and click the cogwheel (Configure) on the row of your folder, then Places and their coordinates. The page of the service itself has no such button; its Visit link leads back to the integration page.
 
 1. Choose a trip. Each trip folder is listed with how many of its places have coordinates.
-2. Choose a place. Each place folder is listed with its coordinates and where they come from (`trip.yaml` or `exif`), or with ✗ when it has none.
+2. Choose a place. A trip folder that holds its photos itself skips this step. Each place folder is listed with its coordinates and where they come from (`trip.yaml` or `exif`), or with ✗ when it has none.
 3. Click the map, drag the marker or type the latitude and longitude. Coordinates that are already known are filled in; for a new place the map opens at a neighbouring place.
 
 On save the coordinates are written to the `trip.yaml` of that trip, which is created when it does not exist. Everything else in the file is kept, including the comment block at its top; comments further down are not. The folder must be writable for Home Assistant, so the user of the network storage needs write access. The map updates straight away.
@@ -103,7 +109,7 @@ autoplay: true
 
 | Option | Default | Meaning |
 |---|---|---|
-| `trip` | newest trip | Folder name of the trip to start with. |
+| `trip` | all trips | Folder name of one trip. Left out, every place of every trip is on the map and plays in turn; the card then also offers a list to pick one trip. |
 | `height` | `70vh` | Any CSS length. |
 | `view` | `world` | What the map shows while playing. `world` shows the whole world, `trip` keeps the whole trip in view, `place` flies to each place. |
 | `projection` | `flat` | `flat` draws a flat world map. `globe` leaves the map as Home Assistant draws it, which is a globe when zoomed out. |

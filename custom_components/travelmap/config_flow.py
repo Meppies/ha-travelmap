@@ -39,7 +39,7 @@ from .const import (
     MIN_SCAN_INTERVAL,
 )
 from .coordinator import TravelmapConfigEntry, TravelmapCoordinator
-from .scanner import Library, Place, Trip
+from .scanner import ROOT_PLACE, Library, Place, Trip
 from .writer import TripFileError, write_place_coordinates
 
 PATH_SCHEMA = vol.Schema({vol.Required(CONF_PATH): TextSelector()})
@@ -77,6 +77,11 @@ def _check_path(hass: HomeAssistant, path: str) -> str | None:
     if not hass.config.is_allowed_path(path):
         return "path_not_allowed"
     return None
+
+
+def _folder(place: Place) -> str:
+    """Return the folder of a place as the user knows it."""
+    return f"{place.name} (/)" if place.id == ROOT_PLACE else place.id
 
 
 class TravelmapConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -218,13 +223,19 @@ class TravelmapOptionsFlow(OptionsFlowWithReload):
         if user_input is not None:
             self._place = user_input[CONF_PLACE]
             return await self.async_step_coordinates()
+        if len(trip.places) == 1:
+            # Nothing to choose between, as with a trip folder that holds
+            # its photos itself.
+            self._place = trip.places[0].id
+            return await self.async_step_coordinates()
         options = [
             SelectOptionDict(
                 value=place.id,
                 label=(
-                    f"✓ {place.id} · {place.latitude:.4f}, {place.longitude:.4f} ({place.source})"
+                    f"✓ {_folder(place)} · {place.latitude:.4f}, {place.longitude:.4f}"
+                    f" ({place.source})"
                     if place.latitude is not None and place.longitude is not None
-                    else f"✗ {place.id}"
+                    else f"✗ {_folder(place)}"
                 ),
             )
             for place in trip.places
@@ -291,7 +302,7 @@ class TravelmapOptionsFlow(OptionsFlowWithReload):
             errors=errors,
             description_placeholders={
                 "trip": trip.id,
-                "place": place.id,
+                "place": _folder(place),
                 "current": (
                     f"{place.latitude:.6f}, {place.longitude:.6f} ({place.source})"
                     if place.latitude is not None and place.longitude is not None
@@ -305,7 +316,10 @@ class TravelmapOptionsFlow(OptionsFlowWithReload):
         return self.async_show_menu(
             step_id="saved",
             menu_options=["place", "trip", "finish"],
-            description_placeholders={"trip": self._trip or "", "place": self._place or ""},
+            description_placeholders={
+                "trip": self._trip or "",
+                "place": (self._trip if self._place == ROOT_PLACE else self._place) or "",
+            },
         )
 
     async def async_step_finish(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

@@ -1,6 +1,7 @@
 """Scan a folder of trips into the library that the card shows.
 
-Layout on disk: one folder per trip, one subfolder per place.
+Layout on disk: one folder per trip, one subfolder per place. A trip folder
+may also hold photos itself; it is then a place of its own.
 
     trips/
       2026-japan/
@@ -9,11 +10,14 @@ Layout on disk: one folder per trip, one subfolder per place.
           001.jpg
         kyoto/
           011.jpg
+      bali/
+        001.jpg
 
 Coordinates of a place, in order of preference:
 
-1. ``places.<folder name>`` in ``trip.yaml``. This is what the user typed or
-   picked on the map, so it wins.
+1. ``places.<folder name>`` in ``trip.yaml``, or ``lat`` and ``lon`` at the
+   top of that file for photos in the trip folder itself. This is what the
+   user typed or picked on the map, so it wins.
 2. EXIF GPS data of the first JPEG in the place folder that carries it.
 3. None: the place gets no marker and is reported.
 
@@ -45,6 +49,9 @@ MEDIA_EXTENSIONS: dict[str, str] = {
     "webm": "video",
 }
 JPEG_EXTENSIONS = {"jpg", "jpeg"}
+# The place that stands for photos in the trip folder itself. Folders with
+# this name are skipped (see SKIP_PREFIXES), so it cannot clash with one.
+ROOT_PLACE = "_"
 TRIP_FILES = ("trip.yaml", "trip.yml")
 # Folders that are never a trip or a place: hidden, internal to this project,
 # or Synology housekeeping (@eaDir, #recycle).
@@ -118,7 +125,7 @@ class Library:
     def missing(self) -> list[str]:
         """Return ``trip/place`` for every place without coordinates."""
         return [
-            f"{trip.id}/{place.id}"
+            trip.id if place.id == ROOT_PLACE else f"{trip.id}/{place.id}"
             for trip in self.trips
             for place in trip.places
             if place.latitude is None
@@ -313,10 +320,34 @@ def _scan_trip(trip_dir: Path, warnings: list[str]) -> Trip:
         _subfolders(trip_dir),
         key=lambda item: (listed.get(item.name, len(listed)), natural_key(item.name)),
     )
-    if not place_dirs:
-        warnings.append(f"{trip_dir.name}: no place folders")
-
+    title = _text(meta.get("title")) or trip_dir.name
     places = []
+    # Photos in the trip folder itself: the trip is its own first place.
+    direct = _collect_media(trip_dir)
+    if direct:
+        coordinates = _manual_coordinates(meta)
+        direct_source: str | None = "trip.yaml"
+        if coordinates is None:
+            coordinates = _exif_coordinates(trip_dir, direct)
+            direct_source = "exif"
+        if coordinates is None:
+            direct_source = None
+            warnings.append(
+                f"{trip_dir.name}: no coordinates in trip.yaml and no EXIF GPS data, so no marker"
+            )
+        places.append(
+            Place(
+                id=ROOT_PLACE,
+                name=title,
+                latitude=coordinates[0] if coordinates else None,
+                longitude=coordinates[1] if coordinates else None,
+                source=direct_source,
+                media=direct,
+            )
+        )
+    elif not place_dirs:
+        warnings.append(f"{trip_dir.name}: no photos and no place folders")
+
     for place_dir in place_dirs:
         entry = manual.get(place_dir.name)
         media = _collect_media(place_dir)
@@ -345,7 +376,7 @@ def _scan_trip(trip_dir: Path, warnings: list[str]) -> Trip:
 
     return Trip(
         id=trip_dir.name,
-        title=_text(meta.get("title")) or trip_dir.name,
+        title=title,
         country=_text(meta.get("country")),
         start=_text(meta.get("start")),
         finish=_text(meta.get("finish")),

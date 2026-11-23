@@ -53,6 +53,21 @@ def test_update_keeps_the_rest(tmp_path: Path) -> None:
     assert "Tōkyō" in text
 
 
+def test_trip_folder_itself(tmp_path: Path) -> None:
+    """Photos in the trip folder: the coordinates go at the top of the file."""
+    trip = tmp_path / "Bali"
+    trip.mkdir()
+    path = write_place_coordinates(tmp_path, "Bali", "_", -8.409518, 115.188919)
+    assert path.read_text(encoding="utf-8") == "lat: -8.409518\nlon: 115.188919\n"
+    (trip / "trip.yaml").write_text("title: Bali 2018\nlat: 1\nlon: 2\n", encoding="utf-8")
+    write_place_coordinates(tmp_path, "Bali", "_", -8.5, 115.25)
+    assert yaml.safe_load(path.read_text(encoding="utf-8")) == {
+        "title": "Bali 2018",
+        "lat": -8.5,
+        "lon": 115.25,
+    }
+
+
 @pytest.mark.parametrize("content", ["", "# only a comment\n", "title: T\n"])
 def test_file_without_places(tmp_path: Path, content: str) -> None:
     """A file without places gets them added."""

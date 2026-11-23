@@ -7,7 +7,7 @@
  * out of the marker of its place and goes back into it.
  *
  *   type: custom:travelmap-card
- *   trip: 2026-japan        # optional, folder name of the trip to start with
+ *   trip: 2026-japan        # optional, folder name of one trip; all trips when left out
  *   height: 70vh            # optional, any CSS length
  *   view: world             # world | trip | place: what the map shows while playing
  *   projection: flat        # flat | globe
@@ -28,7 +28,7 @@
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 
 const DEFAULTS = {
   entry: undefined,
@@ -53,6 +53,7 @@ const DEFAULTS = {
   photo_line: false,
 };
 
+const ALL_TRIPS = "__all__";
 const VIEWS = ["world", "trip", "place"];
 const PROJECTIONS = ["flat", "globe"];
 const POSITIONS = [
@@ -86,6 +87,8 @@ const TEXT = {
     pause: "Pause",
     fullscreen: "Full screen",
     trip: "Trip",
+    all_trips: "All trips",
+    place_one: "place",
     places: "places",
     photos: "photos",
     press_play: "press play to start",
@@ -96,7 +99,7 @@ const TEXT = {
     no_map: "The Home Assistant map could not be loaded.",
     no_places: "This trip has no places with coordinates.",
     error: "Travel map",
-    form_trip: "Trip to start with (folder name)",
+    form_trip: "Only this trip (folder name); empty shows all trips",
     form_height: "Height (CSS length, for example 70vh)",
     form_view: "What the map shows while playing",
     form_projection: "Shape of the map when zoomed out",
@@ -135,6 +138,8 @@ const TEXT = {
     pause: "Pauzeren",
     fullscreen: "Volledig scherm",
     trip: "Reis",
+    all_trips: "Alle reizen",
+    place_one: "plek",
     places: "plekken",
     photos: "foto's",
     press_play: "druk op afspelen om te starten",
@@ -145,7 +150,7 @@ const TEXT = {
     no_map: "De kaart van Home Assistant kon niet worden geladen.",
     no_places: "Deze reis heeft geen plekken met coördinaten.",
     error: "Reiskaart",
-    form_trip: "Reis om mee te beginnen (mapnaam)",
+    form_trip: "Alleen deze reis (mapnaam); leeg toont alle reizen",
     form_height: "Hoogte (CSS-lengte, bijvoorbeeld 70vh)",
     form_view: "Wat de kaart toont tijdens het afspelen",
     form_projection: "Vorm van de kaart bij uitzoomen",
@@ -612,6 +617,12 @@ class TravelmapCard extends HTMLElement {
     this._stop();
     this._fetchLibraryView();
     this._select.innerHTML = "";
+    if (this._trips.length > 1) {
+      const option = document.createElement("option");
+      option.value = ALL_TRIPS;
+      option.textContent = this._t("all_trips");
+      this._select.appendChild(option);
+    }
     for (const trip of this._trips) {
       const option = document.createElement("option");
       option.value = trip.id;
@@ -630,7 +641,8 @@ class TravelmapCard extends HTMLElement {
     clearTimeout(this._retryTimer);
     const wanted = this._config.trip;
     const found = this._trips.find((trip) => trip.id === wanted || trip.title === wanted);
-    this._tripId = (found || this._trips[0]).id;
+    // Without a wish, every trip is on the map at once.
+    this._tripId = found ? found.id : this._trips.length > 1 ? ALL_TRIPS : this._trips[0].id;
     this._select.value = this._tripId;
     this._drawTrip(true);
   }
@@ -662,7 +674,22 @@ class TravelmapCard extends HTMLElement {
   }
 
   _trip() {
+    // The one trip that is selected; undefined when all trips are shown.
     return this._trips.find((trip) => trip.id === this._tripId);
+  }
+
+  _shownTrips() {
+    return this._tripId === ALL_TRIPS ? this._trips : this._trips.filter((t) => t.id === this._tripId);
+  }
+
+  _playablePlaces() {
+    // A place is playable when it has a position. Its key, trip folder plus
+    // place folder, is its identity; the same place name may occur in two trips.
+    return this._shownTrips().flatMap((trip) =>
+      trip.places
+        .filter((place) => place.latitude !== null && place.longitude !== null)
+        .map((place) => ({ ...place, key: `${trip.id}/${place.id}`, trip }))
+    );
   }
 
   // ----- Map --------------------------------------------------------------
@@ -709,13 +736,9 @@ class TravelmapCard extends HTMLElement {
   }
 
   _drawTrip(fit) {
-    const trip = this._trip();
-    if (!trip || !this._map) return;
-    // A place is playable when it has a position; its number is its position
-    // among the playable places, and the place id stays its identity.
-    this._places = trip.places.filter(
-      (place) => place.latitude !== null && place.longitude !== null
-    );
+    const trips = this._shownTrips();
+    if (trips.length === 0 || !this._map) return;
+    this._places = this._playablePlaces();
     this._activePlaceId = undefined;
     this._markers = new Map();
     this._map.zoom = this._number("max_zoom");
@@ -723,9 +746,9 @@ class TravelmapCard extends HTMLElement {
     this._map.editableLocations = this._places.map((place, index) => {
       const element = this._markerElement(index + 1);
       this._styleMarker(element, false);
-      this._markers.set(place.id, element);
+      this._markers.set(place.key, element);
       return {
-        id: place.id,
+        id: place.key,
         location: [place.latitude, place.longitude],
         element,
         elementSize: [this._markerSize(), this._markerSize()],
@@ -734,20 +757,24 @@ class TravelmapCard extends HTMLElement {
       };
     });
 
-    const stamp = trip.start ? new Date(trip.start) : new Date();
+    // One route per trip: places of different trips are not joined.
     this._map.paths =
-      this._config.route_line === true && this._places.length > 1
-        ? [
-            {
-              points: this._places.map((place) => ({
+      this._config.route_line === true
+        ? trips
+            .map((trip) => ({
+              trip,
+              places: this._places.filter((place) => place.trip.id === trip.id),
+            }))
+            .filter((route) => route.places.length > 1)
+            .map((route) => ({
+              points: route.places.map((place) => ({
                 point: [place.latitude, place.longitude],
-                timestamp: stamp,
+                timestamp: route.trip.start ? new Date(route.trip.start) : new Date(),
               })),
               color: this._routeColor(),
-              name: trip.title,
+              name: route.trip.title,
               fullDatetime: true,
-            },
-          ]
+            }))
         : [];
 
     this._message(this._places.length ? "" : this._t("no_places"));
@@ -890,24 +917,29 @@ class TravelmapCard extends HTMLElement {
   }
 
   _showCaption(place, item, index, total) {
-    const trip = this._trip();
-    if (!trip) {
-      this._placeEl.textContent = "";
-      this._subEl.textContent = "";
-      return;
-    }
-    const country = trip.country ? ` · ${trip.country}` : "";
     if (!place) {
-      this._placeEl.textContent = trip.title || trip.id;
+      const trip = this._trip();
+      if (!trip && this._tripId !== ALL_TRIPS) {
+        this._placeEl.textContent = "";
+        this._subEl.textContent = "";
+        return;
+      }
+      const country = trip && trip.country ? ` · ${trip.country}` : "";
+      this._placeEl.textContent = trip ? trip.title || trip.id : this._t("all_trips");
       const hint = this._places.length ? ` · ${this._t("press_play")}` : "";
-      this._subEl.textContent = `${this._places.length} ${this._t("places")}${country}${hint}`;
+      const noun = this._t(this._places.length === 1 ? "place_one" : "places");
+      this._subEl.textContent = `${this._places.length} ${noun}${country}${hint}`;
       return;
     }
-    const number = this._places.findIndex((candidate) => candidate.id === place.id) + 1;
+    const trip = place.trip;
+    const number = this._places.findIndex((candidate) => candidate.key === place.key) + 1;
     this._placeEl.textContent =
       this._config.show_numbers === true ? `${number}. ${place.name}` : place.name;
-    const count = item ? ` · ${index + 1}/${total}` : "";
-    this._subEl.textContent = `${trip.title || trip.id}${country}${count}`;
+    const count = item ? `${index + 1}/${total}` : "";
+    // A trip folder that is its own place would only repeat the name.
+    const title = trip.title || trip.id;
+    const parts = [title === place.name ? "" : title, trip.country || "", count];
+    this._subEl.textContent = parts.filter(Boolean).join(" · ");
   }
 
   // ----- Playback ---------------------------------------------------------
@@ -919,12 +951,12 @@ class TravelmapCard extends HTMLElement {
       this._showCaption();
       return;
     }
-    const start = this._places.findIndex((place) => place.id === this._activePlaceId);
+    const start = this._places.findIndex((place) => place.key === this._activePlaceId);
     this._play(Math.max(start, 0));
   }
 
   _startAt(placeId) {
-    const index = this._places.findIndex((place) => place.id === placeId);
+    const index = this._places.findIndex((place) => place.key === placeId);
     if (index >= 0) this._play(index);
   }
 
@@ -982,16 +1014,12 @@ class TravelmapCard extends HTMLElement {
       return;
     }
     if (!this._alive(generation)) return;
-    const trip = this._trip();
-    if (!trip) return;
-    const places = trip.places.filter(
-      (place) => place.latitude !== null && place.longitude !== null
-    );
+    const places = this._playablePlaces();
     const same =
       places.length === this._places.length &&
       places.every(
         (place, i) =>
-          place.id === this._places[i].id &&
+          place.key === this._places[i].key &&
           place.latitude === this._places[i].latitude &&
           place.longitude === this._places[i].longitude
       );
@@ -1003,7 +1031,7 @@ class TravelmapCard extends HTMLElement {
   }
 
   async _playPlace(generation, place) {
-    this._setActive(place.id);
+    this._setActive(place.key);
     this._showCaption(place);
     if (this._config.view === "place") {
       await this._flyTo(place);
@@ -1080,7 +1108,7 @@ class TravelmapCard extends HTMLElement {
       spots.set(position, spots.has(position) ? `${spots.get(position)} · ${text}` : text);
     };
     put(this._config.name_position, place.name);
-    put(this._config.year_position, this._tripYear(this._trip()));
+    put(this._config.year_position, this._tripYear(place.trip));
     const size = Math.max(16, Math.round(width * 0.042));
     const bands = new Set();
     for (const [position, text] of spots) {
@@ -1095,7 +1123,7 @@ class TravelmapCard extends HTMLElement {
       label.className = `label ${edge} ${side}`;
       label.textContent = text;
       // The name is the headline; a year on its own is a size smaller.
-      const year = text === this._tripYear(this._trip());
+      const year = text === this._tripYear(place.trip);
       label.style.fontSize = `${year ? Math.max(16, Math.round(size * 0.8)) : size}px`;
       card.appendChild(label);
     }
@@ -1173,7 +1201,7 @@ class TravelmapCard extends HTMLElement {
     if (!this._alive(generation)) return;
     if (!Number.isFinite(ratio) || ratio <= 0) ratio = 1.5;
 
-    const point = this._markerPoint(place.id);
+    const point = this._markerPoint(place.key);
     const card = document.createElement("div");
     card.className = "photo";
     card.appendChild(element);

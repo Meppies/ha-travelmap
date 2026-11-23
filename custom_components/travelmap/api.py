@@ -15,7 +15,7 @@ import probatio as vol
 
 from .const import DOMAIN, MEDIA_URL_PREFIX
 from .coordinator import TravelmapConfigEntry
-from .scanner import Trip
+from .scanner import ROOT_PLACE, Trip
 
 
 def media_url(entry_id: str, trip: str, place: str, file: str) -> str:
@@ -103,7 +103,10 @@ class TravelmapMediaView(HomeAssistantView):
         coordinator = entry.runtime_data
         if not coordinator.data.has_media(trip, place, file):
             raise web.HTTPNotFound
+        folder = coordinator.root / trip
+        if place != ROOT_PLACE:
+            folder /= place
         return web.FileResponse(
-            coordinator.root / trip / place / file,
+            folder / file,
             headers={"Cache-Control": "private, max-age=3600"},
         )

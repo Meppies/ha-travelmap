@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from .scanner import TRIP_FILES
+from .scanner import ROOT_PLACE, TRIP_FILES
 
 
 class TripFileError(Exception):
@@ -34,7 +34,8 @@ def write_place_coordinates(
 ) -> Path:
     """Store the coordinates of one place and return the file written.
 
-    An existing file keeps everything else it holds, including the comment
+    For photos in the trip folder itself (place ``_``) the coordinates go at
+    the top of the file. An existing file keeps everything else it holds, including the comment
     block at its top; comments further down are not kept. A file that is not
     valid YAML is left alone. Raises OSError when the folder is read-only.
     """
@@ -55,6 +56,12 @@ def write_place_coordinates(
             raise TripFileError("not a mapping")
         data = loaded or {}
 
+    if place == ROOT_PLACE:
+        # Photos in the trip folder itself: the coordinates belong to the trip.
+        data["lat"] = round(float(latitude), 6)
+        data["lon"] = round(float(longitude), 6)
+        return _write(path, header, data)
+
     places = data.get("places")
     if places is None:
         places = {}
@@ -68,8 +75,12 @@ def write_place_coordinates(
     places[place] = entry
     data["places"] = places
 
+    return _write(path, header, data)
+
+
+def _write(path: Path, header: str, data: dict[str, Any]) -> Path:
+    """Write beside the file and swap, so a failure never leaves half a file."""
     body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
-    # Write beside the file and swap, so a failure never leaves half a file.
     temporary = path.with_name(f".{path.name}.tmp")
     try:
         temporary.write_text(header + body, encoding="utf-8")

@@ -101,7 +101,7 @@ def test_scan_empty_trip_and_unreadable_photo(tmp_path: Path) -> None:
 
     with patch.object(Path, "open", fake_open):
         library = scan_library(tmp_path)
-    assert any("empty: no place folders" in warning for warning in library.warnings)
+    assert any("empty: no photos and no place folders" in warning for warning in library.warnings)
     found = next(trip for trip in library.trips if trip.id == "trip").places[0]
     assert (found.latitude, found.longitude) == (pytest.approx(-33.5), pytest.approx(-70.25))
 
@@ -156,3 +156,42 @@ def test_natural_key() -> None:
         "a.jpg",
         "B.jpg",
     ]
+
+
+def test_trip_folder_with_photos(tmp_path: Path) -> None:
+    """A trip folder that holds photos itself is a place of its own."""
+    bali = tmp_path / "Bali"
+    bali.mkdir()
+    (bali / "b.jpg").write_bytes(PLAIN_JPEG)
+    (bali / "Thumbs.db").write_bytes(b"x")
+    ibiza = tmp_path / "Ibiza"
+    (ibiza / "beach").mkdir(parents=True)
+    (ibiza / "a.JPG").write_bytes(exif_jpeg(38.9, 1.43))
+    (ibiza / "beach" / "c.jpg").write_bytes(PLAIN_JPEG)
+    orlando = tmp_path / "Orlando"
+    orlando.mkdir()
+    (orlando / "o.jpg").write_bytes(exif_jpeg(1, 1))
+    (orlando / "trip.yaml").write_text("title: Florida\nstart: 2019-05-01\nlat: 28.5\nlon: -81.4\n")
+
+    library = scan_library(tmp_path)
+    by_id = {trip.id: trip for trip in library.trips}
+
+    (place,) = by_id["Bali"].places
+    assert (place.id, place.name, place.latitude, place.source) == ("_", "Bali", None, None)
+    assert [item.file for item in place.media] == ["b.jpg"]
+
+    own, beach = by_id["Ibiza"].places
+    assert (own.id, own.source) == ("_", "exif")
+    assert (own.latitude, own.longitude) == (pytest.approx(38.9), pytest.approx(1.43))
+    assert beach.id == "beach"
+
+    (place,) = by_id["Orlando"].places
+    assert (place.name, place.latitude, place.longitude, place.source) == (
+        "Florida",
+        28.5,
+        -81.4,
+        "trip.yaml",
+    )
+    assert library.missing == ["Bali", "Ibiza/beach"]
+    assert library.has_media("Bali", "_", "b.jpg")
+    assert any("Bali: no coordinates" in warning for warning in library.warnings)

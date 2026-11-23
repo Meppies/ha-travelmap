@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -46,6 +48,7 @@ async def test_websocket_library(
 async def test_media_view(
     hass: HomeAssistant,
     mock_entry: MockConfigEntry,
+    library_root: Path,
     hass_client: ClientSessionGenerator,
     hass_client_no_auth: ClientSessionGenerator,
 ) -> None:
@@ -72,6 +75,14 @@ async def test_media_view(
         f"{BASE}/2026-japan/..%2F..%2Fx/kyoto/clip.MP4",
     ):
         assert (await client.get(path)).status in (400, 404), path
+
+    # Photos in a trip folder itself are served from that folder.
+    bali = library_root / "Bali"
+    bali.mkdir()
+    (bali / "b.jpg").write_bytes(b"bali")
+    await mock_entry.runtime_data.async_refresh()
+    response = await client.get(f"{BASE}/Bali/_/b.jpg")
+    assert (response.status, await response.read()) == (200, b"bali")
 
     anonymous = await hass_client_no_auth()
     assert (await anonymous.get(f"{BASE}/2026-japan/kyoto/clip.MP4")).status == 401
