@@ -104,6 +104,8 @@ autoplay: true
 | `photo_seconds` | `6` | Time per photo. |
 | `video_seconds` | `15` | Longest time per video. Videos play without sound. |
 | `place_zoom` | `12` | Zoom level for `view: place`. |
+| `name_position` | `top-center` | Where on the photo the place name is shown: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` or `none`. |
+| `year_position` | `top-right` | Where on the photo the year of the trip is shown; same values. The year comes from `start` in `trip.yaml`, otherwise from the folder name. |
 | `marker_size` | `14` | Diameter of a marker in pixels, 6 to 40. |
 | `show_numbers` | `false` | Number the markers in order of travel. Needs a marker of 18 pixels or more. |
 | `route_line` | `false` | Draw a line between the places, in order of travel. |

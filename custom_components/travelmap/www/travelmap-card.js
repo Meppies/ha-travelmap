@@ -19,13 +19,15 @@
  *   video_seconds: 15
  *   place_zoom: 12          # zoom level for view: place
  *   route_color: "#e87722"
+ *   name_position: top-center   # where on the photo the place name goes, or none
+ *   year_position: top-right    # where on the photo the year of the trip goes, or none
  *   marker_size: 14         # diameter of a marker in pixels
  *   show_numbers: false     # number the markers in order of travel
  *   route_line: false       # line between the places
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 const DEFAULTS = {
   entry: undefined,
@@ -41,6 +43,8 @@ const DEFAULTS = {
   video_seconds: 15,
   place_zoom: 12,
   route_color: undefined,
+  name_position: "top-center",
+  year_position: "top-right",
   marker_size: 14,
   show_numbers: false,
   route_line: false,
@@ -49,6 +53,15 @@ const DEFAULTS = {
 
 const VIEWS = ["world", "trip", "place"];
 const PROJECTIONS = ["flat", "globe"];
+const POSITIONS = [
+  "none",
+  "top-left",
+  "top-center",
+  "top-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+];
 // The inhabited world, corner to corner: what the world view fits.
 const WORLD_BOUNDS = [
   [-56, -168],
@@ -93,6 +106,15 @@ const TEXT = {
     form_video_seconds: "Longest time per video, in seconds",
     form_place_zoom: "Zoom level when flying to each place",
     form_route_color: "Colour of the markers and lines",
+    form_name_position: "Place name on the photo",
+    form_year_position: "Year on the photo",
+    position_none: "Do not show",
+    "position_top-left": "Top left",
+    "position_top-center": "Top centre",
+    "position_top-right": "Top right",
+    "position_bottom-left": "Bottom left",
+    "position_bottom-center": "Bottom centre",
+    "position_bottom-right": "Bottom right",
     form_marker_size: "Marker size",
     form_show_numbers: "Number the markers",
     form_route_line: "Line between the places",
@@ -132,6 +154,15 @@ const TEXT = {
     form_video_seconds: "Langste tijd per video, in seconden",
     form_place_zoom: "Zoomniveau bij naar elke plek vliegen",
     form_route_color: "Kleur van de markers en lijnen",
+    form_name_position: "Plaatsnaam op de foto",
+    form_year_position: "Jaartal op de foto",
+    position_none: "Niet tonen",
+    "position_top-left": "Linksboven",
+    "position_top-center": "Midden boven",
+    "position_top-right": "Rechtsboven",
+    "position_bottom-left": "Linksonder",
+    "position_bottom-center": "Midden onder",
+    "position_bottom-right": "Rechtsonder",
     form_marker_size: "Grootte van de marker",
     form_show_numbers: "Markers nummeren",
     form_route_line: "Lijn tussen de plekken",
@@ -186,6 +217,25 @@ const STYLE = `
   }
   .photo.show { transform: scale(1); opacity: 1; }
   .photo.leave { transform: scale(1); opacity: 0; }
+  /* Texts on the photo: a soft dark band behind them keeps them readable on
+     any picture. */
+  .photo .band {
+    position: absolute; left: 0; right: 0; height: 30%; pointer-events: none;
+  }
+  .photo .band.top { top: 0; background: linear-gradient(rgba(0,0,0,.62), rgba(0,0,0,0)); }
+  .photo .band.bottom { bottom: 0; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.62)); }
+  .photo .label {
+    position: absolute; max-width: 92%;
+    color: #fff; font-weight: 600; line-height: 1.25; letter-spacing: .01em;
+    text-shadow: 0 1px 3px rgba(0,0,0,.85);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--ha-font-family-body, var(--paper-font-body1_-_font-family, sans-serif));
+  }
+  .photo .label.top { top: 4%; }
+  .photo .label.bottom { bottom: 4%; }
+  .photo .label.left { left: 4%; text-align: left; }
+  .photo .label.right { right: 4%; text-align: right; }
+  .photo .label.center { left: 50%; transform: translateX(-50%); text-align: center; }
   .photo img, .photo video {
     display: block; width: 100%; height: 100%; object-fit: cover;
   }
@@ -286,6 +336,15 @@ class TravelmapCard extends HTMLElement {
         { name: "photo_seconds", selector: { number: { min: 1, max: 120, mode: "box" } } },
         { name: "video_seconds", selector: { number: { min: 1, max: 600, mode: "box" } } },
         { name: "place_zoom", selector: { number: { min: 3, max: 18, mode: "slider" } } },
+        ...["name_position", "year_position"].map((name) => ({
+          name,
+          selector: {
+            select: {
+              mode: "dropdown",
+              options: POSITIONS.map((value) => ({ value, label: text[`position_${value}`] })),
+            },
+          },
+        })),
         {
           name: "marker_size",
           selector: { number: { min: 6, max: 40, mode: "slider", unit_of_measurement: "px" } },
@@ -326,6 +385,11 @@ class TravelmapCard extends HTMLElement {
     }
     if (!VIEWS.includes(merged.view)) {
       throw new Error("view must be world, trip or place");
+    }
+    for (const key of ["name_position", "year_position"]) {
+      if (!POSITIONS.includes(merged[key])) {
+        throw new Error(`${key} must be one of: ${POSITIONS.join(", ")}`);
+      }
     }
     if (!PROJECTIONS.includes(merged.projection)) {
       throw new Error("projection must be flat or globe");
@@ -936,6 +1000,41 @@ class TravelmapCard extends HTMLElement {
     return Math.min(Math.max(size, 10), 100) / 100;
   }
 
+  _tripYear(trip) {
+    const match = /(\d{4})/.exec(String((trip && (trip.start || trip.finish || trip.id)) || ""));
+    return match ? match[1] : "";
+  }
+
+  _addLabels(card, place, width) {
+    // Place name and year go on the photo, each where the settings put it.
+    // Two texts in the same spot become one line.
+    const spots = new Map();
+    const put = (position, text) => {
+      if (!text || position === "none") return;
+      spots.set(position, spots.has(position) ? `${spots.get(position)} · ${text}` : text);
+    };
+    put(this._config.name_position, place.name);
+    put(this._config.year_position, this._tripYear(this._trip()));
+    const size = Math.max(16, Math.round(width * 0.042));
+    const bands = new Set();
+    for (const [position, text] of spots) {
+      const [edge, side] = position.split("-");
+      if (!bands.has(edge)) {
+        bands.add(edge);
+        const band = document.createElement("div");
+        band.className = `band ${edge}`;
+        card.appendChild(band);
+      }
+      const label = document.createElement("div");
+      label.className = `label ${edge} ${side}`;
+      label.textContent = text;
+      // The name is the headline; a year on its own is a size smaller.
+      const year = text === this._tripYear(this._trip());
+      label.style.fontSize = `${year ? Math.max(16, Math.round(size * 0.8)) : size}px`;
+      card.appendChild(label);
+    }
+  }
+
   _placePhoto(card, point, ratio, kind) {
     // As wide as the setting says, and never taller than the card has room
     // for. Beside the marker where that fits; otherwise it overlaps it.
@@ -962,6 +1061,7 @@ class TravelmapCard extends HTMLElement {
     card.style.width = `${width}px`;
     card.style.height = `${height}px`;
     card.style.transformOrigin = `${point.x - left}px ${point.y - y}px`;
+    card.dataset.width = String(Math.round(width));
     // The connecting line ends at the edge of the photo nearest the marker.
     return {
       x: clamp(point.x, left, left + width),
@@ -1012,6 +1112,7 @@ class TravelmapCard extends HTMLElement {
     card.className = "photo";
     card.appendChild(element);
     const edge = this._placePhoto(card, point, ratio, item.type);
+    this._addLabels(card, place, Number(card.dataset.width));
 
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", point.x);
