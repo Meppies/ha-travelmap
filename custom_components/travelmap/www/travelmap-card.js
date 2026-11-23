@@ -35,7 +35,7 @@
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.10.0";
+const VERSION = "0.11.0";
 
 const DEFAULTS = {
   entry: undefined,
@@ -311,6 +311,7 @@ const STYLE = `
     color: #fff;
   }
   .frame:fullscreen { height: 100vh !important; }
+  .topbar, .caption, .message { zoom: var(--tm-scale, 1); }
   .map { position: absolute; inset: 0; }
   ha-map { position: absolute; inset: 0; width: 100%; height: 100%; }
   .stage {
@@ -523,6 +524,8 @@ class TravelmapCard extends HTMLElement {
     this._markers = new Map();
     this._activePlaceId = undefined;
     this._playing = false;
+    this._prepared = new Map();
+    this._atOverview = true;
     this._generation = 0;
     this._wake = undefined;
     this._loadState = "new";
@@ -646,6 +649,13 @@ class TravelmapCard extends HTMLElement {
       </ha-card>
     `;
     this._frame = root.querySelector(".frame");
+    if (window.ResizeObserver) {
+      this._resizeObserver = new ResizeObserver(() => {
+        clearTimeout(this._resizeTimer);
+        this._resizeTimer = setTimeout(() => this._resized(), 150);
+      });
+      this._resizeObserver.observe(this._frame);
+    }
     this._mapHost = root.querySelector(".map");
     this._stage = root.querySelector(".stage");
     this._svg = root.querySelector(".stage svg");
@@ -897,7 +907,7 @@ class TravelmapCard extends HTMLElement {
     // An icon needs more room than a dot; a size that was set always wins.
     const set = this._rawConfig && this._rawConfig.marker_size;
     const size = set ? this._number("marker_size") : this._markerIcon() ? 30 : DEFAULTS.marker_size;
-    return Math.min(Math.max(size, 6), 60);
+    return Math.round(Math.min(Math.max(size, 6), 60) * this._scale());
   }
 
   _markerIcon() {
@@ -967,6 +977,7 @@ class TravelmapCard extends HTMLElement {
     this._places = this._playablePlaces();
     this._activePlaceId = undefined;
     this._markers = new Map();
+    this._drawnScale = this._scale();
     this._map.zoom = this._number("max_zoom");
 
     this._map.editableLocations = this._places.map((place, index) => {
@@ -1024,6 +1035,8 @@ class TravelmapCard extends HTMLElement {
       : this._places.map((place) => [place.latitude, place.longitude]);
     const zoom = world ? 6 : this._number("max_zoom");
     const pad = world ? 0 : 0.3;
+    this._atOverview = true;
+    if (world && this._fitWorld(fly)) return;
     const gl = fly ? this._engineMap() : undefined;
     if (gl) {
       // A slow glide back, driven on the map engine itself.
@@ -1050,6 +1063,70 @@ class TravelmapCard extends HTMLElement {
       }
     }
     this._map.fitBounds(points, { zoom, pad, fly });
+  }
+
+  _worldView() {
+    // The flat world exactly once: as wide as the card, with the longitude
+    // of home in the middle. What does not fit in the height is cut off at
+    // the poles, a little more in the south than in the north.
+    const frame = this._frame.getBoundingClientRect();
+    if (!frame.width || !frame.height) return undefined;
+    const size = Math.max(frame.width, frame.height);
+    const half = Math.min(frame.height / size / 2, 0.5);
+    const toY = (lat) => 0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / (2 * Math.PI);
+    const y = Math.min(Math.max(toY(20), half), 1 - half);
+    const latitude = (360 / Math.PI) * Math.atan(Math.exp((0.5 - y) * 2 * Math.PI)) - 90;
+    const home = Number(this._hass && this._hass.config && this._hass.config.longitude);
+    return {
+      center: [Number.isFinite(home) ? home : 0, latitude],
+      zoom: Math.log2(size / 512),
+    };
+  }
+
+  _fitWorld(fly) {
+    // Returns false when the map engine cannot be reached, or shows a globe.
+    const gl = this._engineMap();
+    if (!gl || this._config.projection === "globe") return false;
+    const view = this._worldView();
+    if (!view) return false;
+    try {
+      gl.stop();
+      // Zooming out further would show the world more than once.
+      gl.setMinZoom(Math.max(view.zoom - 0.001, 0));
+      if (fly) gl.easeTo({ ...view, duration: 3000, essential: true });
+      else gl.jumpTo(view);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  _scale() {
+    // On a 4K or 8K screen without scaling, markers and buttons grow along.
+    const width = this._frame ? this._frame.getBoundingClientRect().width : 0;
+    return Math.min(Math.max(width / 1920, 1), 4);
+  }
+
+  _resized() {
+    if (!this._frame) return;
+    const scale = this._scale();
+    this._frame.style.setProperty("--tm-scale", String(Math.round(scale * 100) / 100));
+    if (Math.abs(scale - (this._drawnScale || 1)) > 0.05 && !this._playing && this._map) {
+      this._drawTrip(false);
+    }
+    if (this._config.view !== "trip" && (this._atOverview || !this._playing)) this._fitWorld(false);
+    else if (this._config.view !== "trip") {
+      // Keep the limit right while a place is on screen.
+      const gl = this._engineMap();
+      const view = this._worldView();
+      if (gl && view && this._config.projection !== "globe") {
+        try {
+          gl.setMinZoom(Math.max(view.zoom - 0.001, 0));
+        } catch (err) {
+          // Leave the map as it is.
+        }
+      }
+    }
   }
 
   _zoomFor(place) {
@@ -1368,7 +1445,8 @@ class TravelmapCard extends HTMLElement {
     let index = startIndex;
     while (this._alive(generation)) {
       const place = this._places[index];
-      await this._playPlace(generation, place);
+      const upcoming = this._places[(index + 1) % this._places.length];
+      await this._playPlace(generation, place, upcoming === place ? undefined : upcoming);
       if (!this._alive(generation)) return;
       index = (index + 1) % this._places.length;
       if (index === 0) await this._refresh(generation);
@@ -1408,18 +1486,21 @@ class TravelmapCard extends HTMLElement {
     }
   }
 
-  async _playPlace(generation, place) {
+  async _playPlace(generation, place, upcoming) {
     this._setActive(place.key);
     this._showCaption(place);
+    const media = place.media || [];
+    // The first photo is fetched during the flight.
+    this._prepareMedia(media[0]);
     if (this._config.view === "place") {
+      this._atOverview = false;
       await this._flyTo(place);
       if (!this._alive(generation)) return;
       // A moment to take in where the map has arrived.
-      await this._sleep(700);
+      await this._sleep(300);
     } else {
       await this._sleep(500);
     }
-    const media = place.media || [];
     if (media.length === 0) {
       await this._sleep(2000);
       return;
@@ -1427,6 +1508,8 @@ class TravelmapCard extends HTMLElement {
     for (let i = 0; i < media.length; i += 1) {
       if (!this._alive(generation)) return;
       this._showCaption(place, media[i], i, media.length);
+      // The next one is fetched while this one is on screen.
+      this._prepareMedia(media[i + 1] || (upcoming && (upcoming.media || [])[0]));
       await this._showMedia(generation, place, media[i]);
     }
     if (!this._alive(generation)) return;
@@ -1541,32 +1624,54 @@ class TravelmapCard extends HTMLElement {
     };
   }
 
+  _prepareMedia(item) {
+    // Fetch and decode a photo or video before it is due, so it can appear
+    // the moment the map arrives or the previous photo is done.
+    if (!item) return undefined;
+    if (!this._prepared) this._prepared = new Map();
+    if (this._prepared.has(item.url)) return this._prepared.get(item.url);
+    const ready = (async () => {
+      const url = await this._signedUrl(item.url);
+      if (item.type === "video") {
+        const video = document.createElement("video");
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = "auto";
+        video.src = url;
+        await new Promise((resolve, reject) => {
+          video.addEventListener("loadeddata", resolve, { once: true });
+          video.addEventListener("error", () => reject(new Error("video")), { once: true });
+        });
+        return video;
+      }
+      const image = document.createElement("img");
+      image.alt = "";
+      image.decoding = "async";
+      image.src = url;
+      await image.decode();
+      return image;
+    })();
+    // A failure is dealt with when the item is shown.
+    ready.catch(() => undefined);
+    // Never keep more than a few ahead.
+    if (this._prepared.size > 4) this._prepared.clear();
+    this._prepared.set(item.url, ready);
+    return ready;
+  }
+
   async _showMedia(generation, place, item) {
     let element;
     let seconds;
     let ratio;
     try {
-      const url = await this._signedUrl(item.url);
+      element = await this._prepareMedia(item);
+      this._prepared.delete(item.url);
       if (!this._alive(generation)) return;
       if (item.type === "video") {
-        element = document.createElement("video");
-        element.muted = true;
-        element.playsInline = true;
-        element.preload = "auto";
-        element.src = url;
-        await new Promise((resolve, reject) => {
-          element.addEventListener("loadeddata", resolve, { once: true });
-          element.addEventListener("error", () => reject(new Error("video")), { once: true });
-        });
         const limit = this._number("video_seconds");
         seconds = Number.isFinite(element.duration) ? Math.min(element.duration, limit) : limit;
         ratio = element.videoWidth / element.videoHeight;
       } else {
-        element = document.createElement("img");
-        element.alt = "";
-        element.decoding = "async";
-        element.src = url;
-        await element.decode();
         seconds = this._number("photo_seconds");
         ratio = element.naturalWidth / element.naturalHeight;
         element.className = Math.random() < 0.5 ? "drift-a" : "drift-b";

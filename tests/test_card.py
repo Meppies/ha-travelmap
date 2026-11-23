@@ -141,6 +141,9 @@ def test_card_editor() -> None:
     assert '{ name: "marker_icon", selector: { icon: {} } }' in source
     for option in ("photo_seconds", "video_seconds"):
         assert f'name: "{option}",\n          selector: {{ number: {{ min: 1' in source
+    # The world once, around home; photos fetched ahead.
+    for method in ("_worldView()", "_fitWorld(fly)", "_prepareMedia(item)", "_resized()"):
+        assert f"  {method} {{" in source
     # Dutch texts of the editor.
     assert 'editor_labels: "Plaatsnaam en jaartal op de foto"' in source
 

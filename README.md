@@ -151,6 +151,8 @@ In the card editor the two labels are shown on a sample photo: drag each to its 
 | `marker_image` | none | A picture as the marker, such as `/local/kangaroo.svg` (a file in the `www` folder of Home Assistant). It keeps its own colours and wins over `marker_icon`. |
 | `labels` | `few` | Names on the map. `few` shows countries, capitals and cities of a million people or more; `all` shows everything; `none` shows no names. |
 | `marker_size` | `14` | Size of a marker in pixels, 6 to 60. With a marker icon the default is 30. |
+
+The flat world overview always shows the world exactly once, as wide as the card, with the longitude of your home (Settings → System → General) in the middle. What does not fit in the height is cut off at the poles. On very wide cards, such as a 4K or 8K screen without display scaling, markers, buttons and the caption grow with the card. The first photo of a place is fetched during the flight, and each next one while the current one is shown.
 | `show_numbers` | `false` | Number the markers in order of travel. Needs a marker of 18 pixels or more. |
 | `route_line` | `false` | Draw a line between the places, in order of travel. |
 | `photo_line` | `false` | Draw a line between a photo and the marker it came from. |
