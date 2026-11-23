@@ -19,6 +19,9 @@
  *   video_seconds: 15
  *   place_zoom: 12          # zoom level for view: place
  *   fly_seconds: 6          # duration of the flight between two places, view: place
+ *   overview_seconds: 4     # pause at the overview after each trip; 0 skips the overview
+ *   map_style: meppie       # meppie | default: the colours of the map
+ *   relief: true            # satellite relief on land when zoomed out (NASA Blue Marble)
  *   route_color: "#e87722"
  *   name_position: top-center   # where on the photo the place name goes, or none
  *   year_position: top-right    # where on the photo the year of the trip goes, or none
@@ -28,7 +31,7 @@
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 
 const DEFAULTS = {
   entry: undefined,
@@ -44,6 +47,9 @@ const DEFAULTS = {
   video_seconds: 15,
   place_zoom: 12,
   fly_seconds: 6,
+  overview_seconds: 4,
+  map_style: "meppie",
+  relief: true,
   route_color: undefined,
   name_position: "top-center",
   year_position: "top-right",
@@ -53,6 +59,46 @@ const DEFAULTS = {
   photo_line: false,
 };
 
+// The Desired State palette on the map. Night is the dark theme: land in
+// bush green on a eucalyptus sea. Day is the light theme, on paper.
+const MEPPIE_NIGHT = {
+  background: "#1A3229", land: "#1A3229", water: "#0F221B", labelWater: "#9DB3A8",
+  natureWood: "#2A5E42", natureGrass: "#24493A", naturePark: "#2A5E42", natureLeisure: "#24493A",
+  natureAgriculture: "#223F33", natureWetland: "#2B4F47", natureSand: "#9C7A32",
+  natureRock: "#6B4A36", glacier: "#E9E6DC",
+  areaResidential: "#1F3A30", areaCommercial: "#233D33", areaIndustrial: "#22382F",
+  areaWaste: "#1F3A30", areaBurial: "#1F3A30", siteParking: "#1F3A30", siteSports: "#2A5E4226",
+  building: "#2A463B", buildingBg: "#203A30",
+  roadStreet: "#35554A", roadStreetBg: "#152B23", roadTrunk: "#5A4632", roadTrunkBg: "#152B23",
+  roadMotorway: "#A4461F", roadMotorwayBg: "#4E2A16",
+  transitRail: "#3A5A4E", transitSubway: "#3A5A4E", transitCycle: "#35554A", transitFoot: "#35554A",
+  boundary: "#9DB3A8", boundaryDisputed: "#9DB3A899",
+  label: "#F3F1EA", labelHalo: "#0F221Bcc", labelSymbol: "#C9D6CE", labelPoi: "#C9D6CE66",
+  labelShield: "#1A3229", labelHousenumber: "#C9D6CE4d",
+};
+const MEPPIE_DAY = {
+  background: "#FBF8F2", land: "#FBF8F2", water: "#C9D6CE", labelWater: "#2E5A47",
+  natureWood: "#A9CDB0", natureGrass: "#D3E5CF", naturePark: "#A9CDB0", natureLeisure: "#D3E5CF",
+  natureAgriculture: "#E6EBD8", natureWetland: "#CFE0D6", natureSand: "#F2DC9A",
+  natureRock: "#D9B79E", glacier: "#FDFDFB",
+  areaResidential: "#F3EEE3", areaCommercial: "#F3EEE3", areaIndustrial: "#EFE8DA",
+  areaWaste: "#F3EEE3", areaBurial: "#F3EEE3", siteParking: "#F3EEE3", siteSports: "#A9CDB026",
+  building: "#E8DFCF", buildingBg: "#DACDB6",
+  roadStreet: "#FEFDFA", roadStreetBg: "#E4DED2", roadTrunk: "#F4D98A", roadTrunkBg: "#D9B24A",
+  roadMotorway: "#F0A26B", roadMotorwayBg: "#C2410C",
+  transitRail: "#C9C2B4", transitSubway: "#C9C2B4", transitCycle: "#E4DED2", transitFoot: "#E4DED2",
+  boundary: "#7A3418", boundaryDisputed: "#7A341899",
+  label: "#16181C", labelHalo: "#FBF8F2cc", labelSymbol: "#45474B", labelPoi: "#45474B66",
+  labelShield: "#FBF8F2", labelHousenumber: "#45474B4d",
+};
+const MEPPIE_ACCENT = "#F26B21";
+const MAP_STYLES = ["meppie", "default"];
+// Satellite relief for the land when zoomed out: snow, desert, forest and
+// mountains as they are. NASA Blue Marble, public domain, served by NASA GIBS.
+const RELIEF_SOURCE = "travelmap-relief";
+const RELIEF_TILES =
+  "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg";
+const RELIEF_MAX_ZOOM = 8;
 const ALL_TRIPS = "__all__";
 const VIEWS = ["world", "trip", "place"];
 const PROJECTIONS = ["flat", "globe"];
@@ -113,6 +159,11 @@ const TEXT = {
     form_video_seconds: "Longest time per video, in seconds",
     form_place_zoom: "Zoom level when flying to each place",
     form_fly_seconds: "Duration of the flight between two places, in seconds",
+    form_overview_seconds: "Pause at the overview after each trip, in seconds (0 skips it)",
+    form_map_style: "Colours of the map",
+    map_style_meppie: "Meppie (Desired State)",
+    map_style_default: "Home Assistant",
+    form_relief: "Show snow, desert, forest and mountains (satellite relief from NASA)",
     form_route_color: "Colour of the markers and lines",
     form_name_position: "Place name on the photo",
     form_year_position: "Year on the photo",
@@ -164,6 +215,11 @@ const TEXT = {
     form_video_seconds: "Langste tijd per video, in seconden",
     form_place_zoom: "Zoomniveau bij naar elke plek vliegen",
     form_fly_seconds: "Duur van de vlucht tussen twee plekken, in seconden",
+    form_overview_seconds: "Pauze bij het overzicht na elke reis, in seconden (0 slaat het over)",
+    form_map_style: "Kleuren van de kaart",
+    map_style_meppie: "Meppie (Desired State)",
+    map_style_default: "Home Assistant",
+    form_relief: "Sneeuw, woestijn, bos en bergen tonen (satellietreliëf van NASA)",
     form_route_color: "Kleur van de markers en lijnen",
     form_name_position: "Plaatsnaam op de foto",
     form_year_position: "Jaartal op de foto",
@@ -351,6 +407,20 @@ class TravelmapCard extends HTMLElement {
           name: "fly_seconds",
           selector: { number: { min: 1, max: 30, mode: "slider", unit_of_measurement: "s" } },
         },
+        {
+          name: "overview_seconds",
+          selector: { number: { min: 0, max: 60, mode: "slider", unit_of_measurement: "s" } },
+        },
+        {
+          name: "map_style",
+          selector: {
+            select: {
+              mode: "dropdown",
+              options: MAP_STYLES.map((value) => ({ value, label: text[`map_style_${value}`] })),
+            },
+          },
+        },
+        { name: "relief", selector: { boolean: {} } },
         ...["name_position", "year_position"].map((name) => ({
           name,
           selector: {
@@ -406,6 +476,9 @@ class TravelmapCard extends HTMLElement {
         throw new Error(`${key} must be one of: ${POSITIONS.join(", ")}`);
       }
     }
+    if (!MAP_STYLES.includes(merged.map_style)) {
+      throw new Error("map_style must be meppie or default");
+    }
     if (!PROJECTIONS.includes(merged.projection)) {
       throw new Error("projection must be flat or globe");
     }
@@ -422,9 +495,12 @@ class TravelmapCard extends HTMLElement {
       previous.route_line !== merged.route_line ||
       previous.view !== merged.view ||
       previous.projection !== merged.projection ||
+      previous.map_style !== merged.map_style ||
+      previous.relief !== merged.relief ||
       previous.max_zoom !== merged.max_zoom
     ) {
       this._stop();
+      this._applyMapStyle();
       this._applyProjection();
       this._drawTrip(true);
     }
@@ -607,6 +683,7 @@ class TravelmapCard extends HTMLElement {
       });
       this._mapHost.appendChild(map);
       this._map = map;
+      this._applyMapStyle();
       this._watchProjection();
     }
     return true;
@@ -696,6 +773,7 @@ class TravelmapCard extends HTMLElement {
 
   _routeColor() {
     if (this._config.route_color) return this._config.route_color;
+    if (this._config.map_style === "meppie") return MEPPIE_ACCENT;
     const accent = getComputedStyle(this).getPropertyValue("--accent-color").trim();
     return accent || "#e87722";
   }
@@ -825,37 +903,143 @@ class TravelmapCard extends HTMLElement {
     this._map.fitBounds(points, { zoom, pad, fly });
   }
 
+  _zoomFor(place) {
+    // A trip can ask for its own zoom level; the card's setting is the default.
+    const own = Number(place.trip && place.trip.zoom);
+    return Number.isFinite(own) && own >= 1 ? own : this._number("place_zoom");
+  }
+
   async _flyTo(place) {
     // One long, eased flight from where the map is to the place. The map's
     // own fit flies at a fixed speed and jumps when the device asks for
     // reduced motion, so the flight is driven on the map engine, with a set
     // duration.
     const seconds = Math.min(Math.max(this._number("fly_seconds"), 1), 30);
+    const zoom = this._zoomFor(place);
     const gl = this._engineMap();
     if (gl) {
       try {
         gl.stop();
-        const arrived = new Promise((resolve) => gl.once("moveend", resolve));
-        gl.flyTo({
+        const options = {
           center: [place.longitude, place.latitude],
-          zoom: this._number("place_zoom") - ENGINE_ZOOM_OFFSET,
+          zoom: zoom - ENGINE_ZOOM_OFFSET,
           duration: seconds * 1000,
           curve: 1.2,
           essential: true,
           // Slow start, slow arrival.
           easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2),
-        });
+        };
+        const from = this._lastPlace;
+        if (from && from.trip.id === place.trip.id && from.key !== place.key) {
+          // A hop within a trip is short. Left alone, the map barely rises
+          // and races over the ground at full detail, which stutters. Rise
+          // until both places are in view, cross over, and come down.
+          const peak = this._zoomShowing(gl, from, place);
+          if (peak !== undefined) options.minZoom = Math.min(peak, options.zoom - 0.5);
+        }
+        const arrived = new Promise((resolve) => gl.once("moveend", resolve));
+        gl.flyTo(options);
         await Promise.race([arrived, this._sleep(seconds * 1000 + 1500)]);
+        this._lastPlace = place;
         return;
       } catch (err) {
         // Fall through to the map's own flight.
       }
     }
-    this._map.fitBounds([[place.latitude, place.longitude]], {
-      zoom: this._number("place_zoom"),
-      fly: true,
-    });
+    this._map.fitBounds([[place.latitude, place.longitude]], { zoom, fly: true });
     await this._sleep(FLY_MS);
+    this._lastPlace = place;
+  }
+
+  _zoomShowing(gl, a, b) {
+    // The engine zoom at which both places fit in the card with room to spare.
+    try {
+      const frame = this._frame.getBoundingClientRect();
+      const camera = gl.cameraForBounds(
+        [
+          [Math.min(a.longitude, b.longitude), Math.min(a.latitude, b.latitude)],
+          [Math.max(a.longitude, b.longitude), Math.max(a.latitude, b.latitude)],
+        ],
+        { padding: Math.round(Math.min(frame.width, frame.height) * 0.25) }
+      );
+      return camera && Number.isFinite(camera.zoom) ? camera.zoom : undefined;
+    } catch (err) {
+      return undefined;
+    }
+  }
+
+  async _showOverview(generation) {
+    // After a trip: back out to everything, and stay there for a while.
+    const seconds = Number(this._config.overview_seconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    this._setActive(undefined);
+    this._showCaption();
+    if (this._config.view === "place") {
+      const gl = this._engineMap();
+      const arrived = gl ? new Promise((resolve) => gl.once("moveend", resolve)) : undefined;
+      this._fitTrip(true);
+      this._lastPlace = undefined;
+      await Promise.race([arrived || this._sleep(FLY_MS), this._sleep(4500)]);
+      if (!this._alive(generation)) return;
+    }
+    await this._sleep(Math.min(seconds, 600) * 1000);
+  }
+
+  // ----- Colours and relief ---------------------------------------------------
+
+  _applyMapStyle() {
+    if (!this._map) return;
+    this._map.mapStyle =
+      this._config.map_style === "meppie"
+        ? { base: "colorful", colors: MEPPIE_DAY, colors_dark: MEPPIE_NIGHT }
+        : undefined;
+    this._applyRelief();
+  }
+
+  _applyRelief() {
+    // The vector map knows forest, sand and ice only from close by. Zoomed
+    // out, a satellite picture of the land goes under the sea and the labels,
+    // so the sea keeps the colour of the style.
+    const gl = this._engineMap();
+    if (!gl || !gl.isStyleLoaded || !gl.getLayer) return;
+    try {
+      const wanted = this._config.relief !== false;
+      const present = !!gl.getLayer(RELIEF_SOURCE);
+      if (!wanted) {
+        if (present) gl.removeLayer(RELIEF_SOURCE);
+        if (gl.getSource(RELIEF_SOURCE)) gl.removeSource(RELIEF_SOURCE);
+        return;
+      }
+      if (present) return;
+      if (!gl.getSource(RELIEF_SOURCE)) {
+        gl.addSource(RELIEF_SOURCE, {
+          type: "raster",
+          tiles: [RELIEF_TILES],
+          tileSize: 256,
+          maxzoom: RELIEF_MAX_ZOOM,
+          attribution: "Relief: NASA Blue Marble",
+        });
+      }
+      const dark = !!(this._hass && this._hass.themes && this._hass.themes.darkMode);
+      gl.addLayer(
+        {
+          id: RELIEF_SOURCE,
+          type: "raster",
+          source: RELIEF_SOURCE,
+          paint: {
+            // Full strength for the world, fading out where the vector map
+            // takes over with its own detail.
+            "raster-opacity": ["interpolate", ["linear"], ["zoom"], 5, 1, 9, 0.35, 11, 0],
+            "raster-saturation": -0.15,
+            "raster-brightness-max": dark ? 0.82 : 1,
+            "raster-fade-duration": 300,
+          },
+        },
+        gl.getLayer("water-ocean") ? "water-ocean" : undefined
+      );
+    } catch (err) {
+      // Without relief the map is still complete.
+    }
   }
 
   // ----- Projection -------------------------------------------------------
@@ -887,9 +1071,13 @@ class TravelmapCard extends HTMLElement {
     if (this._projectionMap !== gl) {
       // A theme change reloads the style, and the style brings the globe back.
       this._projectionMap = gl;
-      gl.on("styledata", () => this._applyProjection());
+      gl.on("styledata", () => {
+        this._applyProjection();
+        this._applyRelief();
+      });
     }
     apply();
+    this._applyRelief();
     return true;
   }
 
@@ -967,6 +1155,7 @@ class TravelmapCard extends HTMLElement {
     if (!this._built) return;
     const gl = this._engineMap();
     if (gl) gl.stop();
+    this._lastPlace = undefined;
     this._frame.classList.remove("playing");
     this._clearStage();
     this._setActive(undefined);
@@ -999,6 +1188,11 @@ class TravelmapCard extends HTMLElement {
       if (!this._alive(generation)) return;
       index = (index + 1) % this._places.length;
       if (index === 0) await this._refresh(generation);
+      if (!this._alive(generation)) return;
+      const next = this._places[index % Math.max(this._places.length, 1)];
+      if (!next || next.trip.id !== place.trip.id || index === 0) {
+        await this._showOverview(generation);
+      }
     }
   }
 
@@ -1095,8 +1289,8 @@ class TravelmapCard extends HTMLElement {
   }
 
   _tripYear(trip) {
-    const match = /(\d{4})/.exec(String((trip && (trip.start || trip.finish || trip.id)) || ""));
-    return match ? match[1] : "";
+    // Set in the management panel, or taken from the dates or folder name.
+    return (trip && trip.year) || "";
   }
 
   _addLabels(card, place, width) {

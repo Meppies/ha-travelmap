@@ -7,7 +7,12 @@ from unittest.mock import patch
 
 import pytest
 
-from custom_components.travelmap.scanner import natural_key, read_exif_gps, scan_library
+from custom_components.travelmap.scanner import (
+    Library,
+    natural_key,
+    read_exif_gps,
+    scan_library,
+)
 
 from .conftest import PLAIN_JPEG, build_library, exif_jpeg
 
@@ -18,6 +23,7 @@ def test_scan_library(tmp_path: Path) -> None:
 
     assert [trip.id for trip in library.trips] == ["2026-japan", "2025-loose"]
     japan, loose = library.trips
+    assert (japan.year, japan.zoom, loose_year(library)) == ("2026", None, "2025")
     assert (japan.title, japan.country, japan.start, japan.finish) == (
         "Japan",
         "Japan",
@@ -53,6 +59,31 @@ def test_scan_library(tmp_path: Path) -> None:
     assert not library.has_media("2026-japan", "kyoto", "../trip.yaml")
     assert any("nara: no EXIF GPS" in warning for warning in library.warnings)
     assert any("2025-loose: no trip.yaml" in warning for warning in library.warnings)
+
+
+def loose_year(library: Library) -> str | None:
+    """Return the year of the trip that has no trip.yaml: from its folder name."""
+    return next(trip.year for trip in library.trips if trip.id == "2025-loose")
+
+
+@pytest.mark.parametrize(
+    ("content", "folder", "year", "zoom"),
+    [
+        ("year: 2012\nstart: 2019-01-01\nzoom: 9\n", "Ibiza", "2012", 9.0),
+        ("finish: 2018-07-20\nzoom: 99\n", "Bali", "2018", None),
+        ("zoom: far\n", "Ibiza 2012 (1)", "2012", None),
+        ("title: T\n", "Orlando 12345", None, None),
+    ],
+)
+def test_trip_year_and_zoom(
+    tmp_path: Path, content: str, folder: str, year: str | None, zoom: float | None
+) -> None:
+    """The year is set by hand, or comes from the dates or the folder name."""
+    trip = tmp_path / folder
+    trip.mkdir()
+    (trip / "trip.yaml").write_text(content, encoding="utf-8")
+    (found,) = scan_library(tmp_path).trips
+    assert (found.year, found.zoom) == (year, zoom)
 
 
 def test_scan_missing_root(tmp_path: Path) -> None:

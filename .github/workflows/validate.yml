@@ -43,4 +43,6 @@ jobs:
       - name: Types
         run: mypy
       - name: Card syntax
-        run: node --check custom_components/travelmap/www/travelmap-card.js
+        run: |
+          node --check custom_components/travelmap/www/travelmap-card.js
+          node --check custom_components/travelmap/www/travelmap-panel.js

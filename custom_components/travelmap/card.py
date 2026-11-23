@@ -1,4 +1,4 @@
-"""Serve and register the Travel map dashboard card."""
+"""Serve and register the Travel map dashboard card and management panel."""
 
 from __future__ import annotations
 
@@ -15,6 +15,11 @@ from .const import DOMAIN, LOGGER
 CARD_FILENAME = "travelmap-card.js"
 CARD_URL = f"/{DOMAIN}/{CARD_FILENAME}"
 CARD_PATH = Path(__file__).parent / "www" / CARD_FILENAME
+PANEL_FILENAME = "travelmap-panel.js"
+PANEL_URL = f"/{DOMAIN}/{PANEL_FILENAME}"
+PANEL_PATH = Path(__file__).parent / "www" / PANEL_FILENAME
+PANEL_URL_PATH = DOMAIN
+PANEL_TITLES = {"nl": "Reiskaart"}
 DATA_STATIC_REGISTERED = f"{DOMAIN}_card_static"
 
 
@@ -42,13 +47,38 @@ async def async_register_card(hass: HomeAssistant) -> None:
     try:
         if not hass.data.get(DATA_STATIC_REGISTERED):
             await hass.http.async_register_static_paths(
-                [StaticPathConfig(CARD_URL, str(CARD_PATH), True)]
+                [
+                    StaticPathConfig(CARD_URL, str(CARD_PATH), True),
+                    StaticPathConfig(PANEL_URL, str(PANEL_PATH), True),
+                ]
             )
             hass.data[DATA_STATIC_REGISTERED] = True
         add_extra_js_url(hass, url)
         await _async_sync_resource(hass, url)
     except Exception:  # noqa: BLE001
         LOGGER.warning("Could not register the Travel map card", exc_info=True)
+    try:
+        await _async_register_panel(hass, url.split("?")[1])
+    except Exception:  # noqa: BLE001
+        LOGGER.warning("Could not register the Travel map panel", exc_info=True)
+
+
+async def _async_register_panel(hass: HomeAssistant, version: str) -> None:
+    """Add the management panel to the sidebar, for administrators."""
+    if PANEL_URL_PATH in hass.data.get("frontend_panels", {}):
+        return
+    from homeassistant.components import panel_custom
+
+    await panel_custom.async_register_panel(
+        hass,
+        webcomponent_name="travelmap-panel",
+        frontend_url_path=PANEL_URL_PATH,
+        module_url=f"{PANEL_URL}?{version}",
+        sidebar_title=PANEL_TITLES.get(hass.config.language, "Travel map"),
+        sidebar_icon="mdi:map-marker-path",
+        require_admin=True,
+        config={},
+    )
 
 
 async def _async_sync_resource(hass: HomeAssistant, url: str) -> None:
@@ -74,6 +104,12 @@ async def _async_sync_resource(hass: HomeAssistant, url: str) -> None:
 async def async_unregister_card(hass: HomeAssistant) -> None:
     """Remove the card resource when the last entry goes."""
     url = await _async_card_url(hass)
+    try:
+        from homeassistant.components import frontend
+
+        frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False)
+    except Exception:  # noqa: BLE001
+        LOGGER.warning("Could not remove the Travel map panel", exc_info=True)
     try:
         remove_extra_js_url(hass, url)
         resources = _storage_resources(hass)

@@ -3,7 +3,8 @@
   "name": "Travel map",
   "after_dependencies": [
     "frontend",
-    "lovelace"
+    "lovelace",
+    "panel_custom"
   ],
   "categories": ["productivity_information.documents_photos", "media_entertainment"],
   "codeowners": [
@@ -23,5 +24,5 @@
   ],
   "quality_scale": "platinum",
   "requirements": [],
-  "version": "0.7.0"
+  "version": "0.8.0"
 }

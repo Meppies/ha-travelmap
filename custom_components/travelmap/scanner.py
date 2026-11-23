@@ -100,6 +100,8 @@ class Trip:
     country: str | None
     start: str | None
     finish: str | None
+    year: str | None
+    zoom: float | None
     places: tuple[Place, ...]
 
 
@@ -302,6 +304,24 @@ def _load_meta(trip_dir: Path, warnings: list[str]) -> dict[str, Any]:
     return {}
 
 
+def _year(meta: dict[str, Any], folder: str) -> str | None:
+    """Return the year of a trip: set by hand, else from its dates or folder."""
+    for value in (meta.get("year"), meta.get("start"), meta.get("finish"), folder):
+        match = re.search(r"(?<!\d)(1[89]|20)\d{2}(?!\d)", str(value if value is not None else ""))
+        if match:
+            return match.group(0)
+    return None
+
+
+def _zoom(value: Any) -> float | None:
+    """Return the zoom level a trip asks for, when it is a sane one."""
+    try:
+        zoom = float(value)
+    except (TypeError, ValueError):
+        return None
+    return zoom if 1 <= zoom <= 20 else None
+
+
 def _text(value: Any) -> str | None:
     return str(value) if value not in (None, "") else None
 
@@ -380,6 +400,8 @@ def _scan_trip(trip_dir: Path, warnings: list[str]) -> Trip:
         country=_text(meta.get("country")),
         start=_text(meta.get("start")),
         finish=_text(meta.get("finish")),
+        year=_year(meta, trip_dir.name),
+        zoom=_zoom(meta.get("zoom")),
         places=tuple(places),
     )
 

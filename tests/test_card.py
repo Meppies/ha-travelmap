@@ -75,6 +75,56 @@ async def _url(hass: HomeAssistant) -> str:
     return await card._async_card_url(hass)
 
 
+def test_panel_file_exists() -> None:
+    """The management panel ships with the integration."""
+    assert card.PANEL_PATH.is_file()
+    assert 'customElements.define("travelmap-panel"' in card.PANEL_PATH.read_text()
+
+
+async def test_panel_registration(hass: HomeAssistant, frontend: MagicMock) -> None:
+    """The panel is registered once, in the server language, and removed again."""
+    _setup(hass, FakeResources())
+    hass.config.language = "nl"
+    with (
+        patch("homeassistant.components.panel_custom.async_register_panel") as register,
+        patch("homeassistant.components.frontend.async_remove_panel") as remove,
+    ):
+        await async_register_card(hass)
+        kwargs = register.await_args.kwargs
+        assert kwargs["frontend_url_path"] == "travelmap"
+        assert kwargs["sidebar_title"] == "Reiskaart"
+        assert kwargs["require_admin"] is True
+        assert kwargs["module_url"].startswith("/travelmap/travelmap-panel.js?v=")
+
+        hass.data["frontend_panels"] = {"travelmap": object()}
+        await async_register_card(hass)
+        register.assert_awaited_once()
+
+        await async_unregister_card(hass)
+        remove.assert_called_once_with(hass, "travelmap", warn_if_unknown=False)
+
+
+async def test_panel_failures_are_logged(
+    hass: HomeAssistant, frontend: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A panel that cannot be registered or removed never stops the rest."""
+    _setup(hass, FakeResources())
+    with (
+        patch(
+            "homeassistant.components.panel_custom.async_register_panel",
+            side_effect=RuntimeError("boom"),
+        ),
+        patch(
+            "homeassistant.components.frontend.async_remove_panel",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        await async_register_card(hass)
+        await async_unregister_card(hass)
+    assert "Could not register the Travel map panel" in caplog.text
+    assert "Could not remove the Travel map panel" in caplog.text
+
+
 def test_card_file_exists() -> None:
     """The card ships with the integration."""
     assert CARD_PATH.is_file()

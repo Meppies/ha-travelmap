@@ -40,6 +40,8 @@ Folders deeper than that are not read.
 ```yaml
 title: Japan
 country: Japan
+year: 2026          # optional; otherwise taken from start or the folder name
+zoom: 10            # optional; zoom level for the places of this trip
 start: 2026-04-01
 finish: 2026-04-14
 places:
@@ -81,15 +83,25 @@ The folder does not have to exist when you add the integration. You can set up t
 
 The folder can be changed later with Reconfigure. Add the integration again for a second folder.
 
-### Coordinates per place
+### Managing trips and places
 
-Open the integration under Settings → Devices & services → Travel map and click the cogwheel (Configure) on the row of your folder, then Places and their coordinates. The page of the service itself has no such button; its Visit link leads back to the integration page.
+The integration adds **Travel map** to the sidebar, for administrators. It lists your trip folders with the place folders inside them; ✓ means a folder has a position, ▲ that it has none yet. Choose a folder to edit it.
 
-1. Choose a trip. Each trip folder is listed with how many of its places have coordinates.
-2. Choose a place. A trip folder that holds its photos itself skips this step. Each place folder is listed with its coordinates and where they come from (`trip.yaml` or `exif`), or with ✗ when it has none.
-3. Click the map, drag the marker or type the latitude and longitude. Coordinates that are already known are filled in; for a new place the map opens at a neighbouring place.
+| For a trip | |
+|---|---|
+| Title | Shown on the map. Empty uses the folder name. |
+| Year | Shown on the photos. Empty takes the year from `start`, or from the folder name when it holds one. |
+| Country | Shown under the place name. |
+| Zoom level | How far the map zooms in on the places of this trip with `view: place`. Left at the start of the slider, the setting of the card is used. |
 
-On save the coordinates are written to the `trip.yaml` of that trip, which is created when it does not exist. Everything else in the file is kept, including the comment block at its top; comments further down are not. The folder must be writable for Home Assistant, so the user of the network storage needs write access. The map updates straight away.
+| For a place, and for a trip folder that holds photos itself | |
+|---|---|
+| Name | Shown on the map and on the photos. Empty uses the folder name. |
+| Position | Click the map, drag the marker or type latitude and longitude. A known position is filled in; for a new place the map opens at a neighbouring place. |
+
+Save writes to the `trip.yaml` of that trip, which is created when it does not exist. Everything else in the file is kept, including the comment block at its top; comments further down are not. The folder must be writable for Home Assistant, so the user of the network storage needs write access. The card picks the change up at its next round.
+
+The same positions can also be set under Settings → Devices & services → Travel map → cogwheel → Places and their coordinates.
 
 ### Options
 
@@ -119,8 +131,11 @@ autoplay: true
 | `autoplay` | `false` | Start playing when the card loads. |
 | `photo_seconds` | `6` | Time per photo. |
 | `video_seconds` | `15` | Longest time per video. Videos play without sound. |
-| `place_zoom` | `12` | Zoom level for `view: place`. |
-| `fly_seconds` | `6` | Duration of the flight from one place to the next with `view: place`, 1 to 30. The flight is one continuous, eased movement. |
+| `place_zoom` | `12` | Zoom level for `view: place`. A trip can have its own, set in the Travel map panel. |
+| `fly_seconds` | `6` | Duration of the flight from one place to the next with `view: place`, 1 to 30. The flight is one continuous, eased movement. Between two places of the same trip the map first rises until both are in view. |
+| `overview_seconds` | `4` | After the last place of a trip the map goes back to the overview and waits this long before the next trip, 0 to 60. `0` skips the overview. |
+| `map_style` | `meppie` | Colours of the map. `meppie` is the Desired State palette: bush green land on a eucalyptus sea in a dark theme, paper in a light one. `default` leaves the map as Home Assistant draws it. |
+| `relief` | `true` | Zoomed out, show the land as a satellite picture with relief, so that snow, desert, forest and mountains are visible. See Known limitations for where it comes from. |
 | `name_position` | `top-center` | Where on the photo the place name is shown: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` or `none`. |
 | `year_position` | `top-right` | Where on the photo the year of the trip is shown; same values. The year comes from `start` in `trip.yaml`, otherwise from the folder name. |
 | `marker_size` | `14` | Diameter of a marker in pixels, 6 to 40. |
@@ -187,6 +202,8 @@ When places have no coordinates, a repair issue lists them. Set them under Confi
 - A browser may refuse to start a video without a user gesture; photos always play.
 - The optional route line is straight between places, in the order of `trip.yaml`.
 - The flat world map is not something Home Assistant's map component offers: its map style draws a globe when zoomed out. The card switches the map engine behind it to a flat projection. If a later Home Assistant release changes that engine, the map falls back to the globe and everything else keeps working.
+- The relief picture is NASA's Blue Marble (public domain), loaded by the browser straight from NASA's public image server `gibs.earthdata.nasa.gov`. NASA then sees which part of the world the map shows, as any map service does, and nothing else. It reaches zoom level 8 and fades out beyond that. Set `relief: false` to keep the browser from contacting NASA.
+- The vector map of Home Assistant holds forest, sand, rock and ice only from zoom level 7 to 11 on, which is why the world view needs the relief picture to show them.
 - Map tiles come from the map service of Home Assistant, so the map needs the same internet access as the built-in map card. Photos never leave the local network.
 
 ## Troubleshooting
@@ -201,7 +218,7 @@ When places have no coordinates, a repair issue lists them. Set them under Confi
 
 ## Removal
 
-Delete the entry under Settings → Devices & services → Travel map. Removing the last entry also removes the card resource. Then remove the integration in the Marketplace and restart. Your photos are not touched.
+Delete the entry under Settings → Devices & services → Travel map. Removing the last entry also removes the card resource and the Travel map panel. Then remove the integration in the Marketplace and restart. Your photos are not touched.
 
 ## Development
 

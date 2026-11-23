@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
-from .api import TravelmapMediaView, websocket_library
+from .api import TravelmapMediaView, websocket_library, websocket_save
 from .card import async_register_card, async_unregister_card
 from .const import DOMAIN
 from .coordinator import (
@@ -25,6 +25,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the websocket command and the media view."""
     async_register_command(hass, websocket_library)
+    async_register_command(hass, websocket_save)
     hass.http.register_view(TravelmapMediaView())
     return True
 

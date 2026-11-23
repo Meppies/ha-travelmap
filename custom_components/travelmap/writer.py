@@ -1,4 +1,4 @@
-"""Write the coordinates of a place into the trip.yaml of its trip.
+"""Write what the user sets in Home Assistant into the trip.yaml of a trip.
 
 Blocking; runs in the executor.
 """
@@ -29,15 +29,32 @@ def _split_header(text: str) -> tuple[str, str]:
     return "".join(lines[:count]), "".join(lines[count:])
 
 
-def write_place_coordinates(
-    root: Path, trip: str, place: str, latitude: float, longitude: float
-) -> Path:
-    """Store the coordinates of one place and return the file written.
+def _apply(target: dict[str, Any], fields: dict[str, Any]) -> None:
+    """Set the given fields; None or an empty text removes a field."""
+    for key, value in fields.items():
+        if value is None or value == "":
+            target.pop(key, None)
+        else:
+            target[key] = value
 
-    For photos in the trip folder itself (place ``_``) the coordinates go at
-    the top of the file. An existing file keeps everything else it holds, including the comment
-    block at its top; comments further down are not kept. A file that is not
-    valid YAML is left alone. Raises OSError when the folder is read-only.
+
+def update_trip_file(
+    root: Path,
+    trip: str,
+    trip_fields: dict[str, Any] | None = None,
+    place: str | None = None,
+    place_fields: dict[str, Any] | None = None,
+) -> Path:
+    """Update the trip.yaml of one trip and return the file written.
+
+    ``trip_fields`` go at the top of the file (title, country, year, zoom).
+    ``place_fields`` go under ``places.<place>``; for photos in the trip
+    folder itself (place ``_``) they go at the top as well.
+
+    The file is created when missing. An existing file keeps everything else
+    it holds, including the comment block at its top; comments further down
+    are not kept. A file that is not valid YAML is left alone. Raises OSError
+    when the folder is read-only.
     """
     trip_dir = root / trip
     path = next(
@@ -56,36 +73,44 @@ def write_place_coordinates(
             raise TripFileError("not a mapping")
         data = loaded or {}
 
+    _apply(data, trip_fields or {})
     if place == ROOT_PLACE:
-        # Photos in the trip folder itself: the coordinates belong to the trip.
-        data["lat"] = round(float(latitude), 6)
-        data["lon"] = round(float(longitude), 6)
-        return _write(path, header, data)
+        # Photos in the trip folder itself: the place is the trip.
+        fields = dict(place_fields or {})
+        fields.pop("name", None)
+        _apply(data, fields)
+    elif place is not None:
+        places = data.get("places")
+        if places is None:
+            places = {}
+        elif not isinstance(places, dict):
+            raise TripFileError("places is not a mapping")
+        entry = places.get(place)
+        if not isinstance(entry, dict):
+            entry = {}
+        _apply(entry, place_fields or {})
+        places[place] = entry
+        data["places"] = places
 
-    places = data.get("places")
-    if places is None:
-        places = {}
-    elif not isinstance(places, dict):
-        raise TripFileError("places is not a mapping")
-    entry = places.get(place)
-    if not isinstance(entry, dict):
-        entry = {}
-    entry["lat"] = round(float(latitude), 6)
-    entry["lon"] = round(float(longitude), 6)
-    places[place] = entry
-    data["places"] = places
-
-    return _write(path, header, data)
-
-
-def _write(path: Path, header: str, data: dict[str, Any]) -> Path:
-    """Write beside the file and swap, so a failure never leaves half a file."""
     body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    # Write beside the file and swap, so a failure never leaves half a file.
     temporary = path.with_name(f".{path.name}.tmp")
     try:
-        temporary.write_text(header + body, encoding="utf-8")
+        temporary.write_text(header + (body if data else ""), encoding="utf-8")
         os.replace(temporary, path)
     except OSError:
         temporary.unlink(missing_ok=True)
         raise
     return path
+
+
+def write_place_coordinates(
+    root: Path, trip: str, place: str, latitude: float, longitude: float
+) -> Path:
+    """Store the coordinates of one place and return the file written."""
+    return update_trip_file(
+        root,
+        trip,
+        place=place,
+        place_fields={"lat": round(float(latitude), 6), "lon": round(float(longitude), 6)},
+    )

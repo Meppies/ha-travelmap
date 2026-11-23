@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from custom_components.travelmap.writer import TripFileError, write_place_coordinates
+from custom_components.travelmap.writer import (
+    TripFileError,
+    update_trip_file,
+    write_place_coordinates,
+)
 
 EXISTING = """\
 # Metadata for one trip.
@@ -88,3 +92,33 @@ def test_unsafe_files_are_left_alone(tmp_path: Path, content: str) -> None:
     with pytest.raises(TripFileError):
         write_place_coordinates(tmp_path, "trip", "a", 1, 2)
     assert (trip / "trip.yaml").read_text(encoding="utf-8") == content
+
+
+def test_update_trip_fields(tmp_path: Path) -> None:
+    """Trip fields go at the top; empty values remove a field."""
+    trip = tmp_path / "Japan"
+    trip.mkdir()
+    path = update_trip_file(
+        tmp_path, "Japan", {"title": "Japan", "year": 2026, "zoom": 9.0, "country": None}
+    )
+    assert yaml.safe_load(path.read_text()) == {"title": "Japan", "year": 2026, "zoom": 9.0}
+    update_trip_file(
+        tmp_path,
+        "Japan",
+        {"title": "", "zoom": None},
+        "tokyo",
+        {"name": "Tōkyō", "lat": 1.0, "lon": 2.0},
+    )
+    update_trip_file(tmp_path, "Japan", place="tokyo", place_fields={"name": None})
+    assert yaml.safe_load(path.read_text(encoding="utf-8")) == {
+        "year": 2026,
+        "places": {"tokyo": {"lat": 1.0, "lon": 2.0}},
+    }
+    # The trip folder as its own place: a name is not a field of the trip.
+    update_trip_file(tmp_path, "Japan", {"year": None}, "_", {"name": "x", "lat": 3.0, "lon": 4.0})
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert (data["lat"], data["lon"], "name" in data, "year" in data) == (3.0, 4.0, False, False)
+    # Everything removed: an empty file, not the text "{}".
+    empty = tmp_path / "Bali"
+    empty.mkdir()
+    assert update_trip_file(tmp_path, "Bali", {"title": None}).read_text() == ""
