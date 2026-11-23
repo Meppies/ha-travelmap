@@ -107,13 +107,13 @@ The arrows next to a trip or a place set the order of playing. The order of the 
 
 A **group** is your own selection of trips and places, in your own order: add whole trips or single places, move them with the arrows, and save. Groups are kept in Home Assistant, not in the folder. In the card a group appears in the list next to the trips, and `group: <name>` makes a card play only that group.
 
-The same positions can also be set under Settings → Devices & services → Travel map → cogwheel → Places and their coordinates.
+The cogwheel under Settings → Devices & services → Travel map only sets how often the folder is scanned.
 
 ### Options
 
 | Option | Meaning |
 |---|---|
-| Scan interval | Minutes between two scans of the folder, 5 to 1440. Default 60. Under Configure → Settings. |
+| Scan interval | Minutes between two scans of the folder, 5 to 1440. Default 60. Under the cogwheel of the integration. |
 
 ## The card
 
@@ -145,7 +145,10 @@ autoplay: true
 | `relief` | `true` | Zoomed out, show the land as a satellite picture with relief, so that snow, desert, forest and mountains are visible. See Known limitations for where it comes from. |
 | `name_position` | `top-center` | Where on the photo the place name is shown: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` or `none`. |
 | `year_position` | `top-right` | Where on the photo the year of the trip is shown; same values. The year comes from `start` in `trip.yaml`, otherwise from the folder name. |
-| `marker_icon` | none | Your own marker in place of the dot: an icon such as `mdi:kangaroo`, or the address of a picture such as `/local/kangaroo.svg` (a file in the `www` folder of Home Assistant). An icon takes the marker colour; a picture keeps its own. |
+
+In the card editor the two labels are shown on a sample photo: drag each to its spot, or to the box below the photo to hide it. The times are sliders, and the marker icon is chosen from a list.
+| `marker_icon` | none | Your own marker in place of the dot: any icon Home Assistant knows, such as `mdi:kangaroo`, including icons added by other integrations. The card editor offers them in a searchable list. An icon takes the marker colour. |
+| `marker_image` | none | A picture as the marker, such as `/local/kangaroo.svg` (a file in the `www` folder of Home Assistant). It keeps its own colours and wins over `marker_icon`. |
 | `labels` | `few` | Names on the map. `few` shows countries, capitals and cities of a million people or more; `all` shows everything; `none` shows no names. |
 | `marker_size` | `14` | Size of a marker in pixels, 6 to 60. With a marker icon the default is 30. |
 | `show_numbers` | `false` | Number the markers in order of travel. Needs a marker of 18 pixels or more. |

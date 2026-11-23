@@ -35,59 +35,15 @@
   "options": {
     "step": {
       "init": {
-        "title": "Travel map",
-        "menu_options": {
-          "trip": "Places and their coordinates",
-          "settings": "Settings"
-        }
-      },
-      "settings": {
         "title": "Travel map settings",
+        "description": "Trips, places, their order and groups are managed in the Travel map panel in the sidebar.",
         "data": {
           "scan_interval": "Scan interval"
         },
         "data_description": {
           "scan_interval": "How often the folder is checked for new trips, places and photos."
         }
-      },
-      "trip": {
-        "title": "Choose a trip",
-        "description": "The folders of your trips. The numbers say how many places of each trip have coordinates.",
-        "data": {
-          "trip": "Trip"
-        }
-      },
-      "place": {
-        "title": "Places of {trip}",
-        "description": "The place folders of this trip. ✓ has coordinates, with where they come from; ✗ has none yet. Choose a place to set or change its coordinates.",
-        "data": {
-          "place": "Place"
-        }
-      },
-      "coordinates": {
-        "title": "Coordinates of {place}",
-        "description": "Trip: {trip}. Now: {current}.\n\nClick the map or drag the marker, or type the latitude and longitude. The coordinates are saved in the trip.yaml of the trip folder, so the folder must be writable.",
-        "data": {
-          "location": "Location"
-        }
-      },
-      "saved": {
-        "title": "Saved",
-        "description": "The coordinates of {place} are in the trip.yaml of {trip}.",
-        "menu_options": {
-          "place": "Another place of this trip",
-          "trip": "Another trip",
-          "finish": "Done"
-        }
       }
-    },
-    "error": {
-      "write_failed": "The file could not be written. Check that Home Assistant may write to the folder; the user of the network storage needs write access.",
-      "trip_file_invalid": "The existing trip.yaml of this trip is not valid YAML, so it was left alone. Correct or remove the file first."
-    },
-    "abort": {
-      "no_trips": "No trip folders were found. Check that the folder is available and contains a folder per trip.",
-      "no_places": "This trip has no place folders."
     }
   },
   "entity": {

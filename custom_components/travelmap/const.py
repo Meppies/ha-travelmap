@@ -9,8 +9,6 @@ LOGGER = logging.getLogger(__package__)
 
 CONF_PATH = "path"
 CONF_SCAN_INTERVAL = "scan_interval"
-CONF_TRIP = "trip"
-CONF_PLACE = "place"
 
 DEFAULT_PATH = "/media/trips"
 # Minutes between two scans of the folder tree.

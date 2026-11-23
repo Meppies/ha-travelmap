@@ -132,6 +132,19 @@ def test_card_file_exists() -> None:
     assert 'customElements.define("travelmap-card"' in CARD_PATH.read_text()
 
 
+def test_card_editor() -> None:
+    """The card has its own editor: icon list, sliders and the label frame."""
+    source = CARD_PATH.read_text()
+    assert 'customElements.define("travelmap-card-editor"' in source
+    assert "static getConfigElement()" in source
+    assert "static getConfigForm()" not in source
+    assert '{ name: "marker_icon", selector: { icon: {} } }' in source
+    for option in ("photo_seconds", "video_seconds"):
+        assert f'name: "{option}",\n          selector: {{ number: {{ min: 1' in source
+    # Dutch texts of the editor.
+    assert 'editor_labels: "Plaatsnaam en jaartal op de foto"' in source
+
+
 async def test_register_creates_resource(hass: HomeAssistant, frontend: MagicMock) -> None:
     """A new install gets the static path, the module and one resource."""
     resources = FakeResources()
@@ -221,6 +234,7 @@ async def test_unregister_without_lovelace(
 @pytest.mark.parametrize("path", [CARD_PATH, card.PANEL_PATH])
 def test_no_duplicate_methods(path: Path) -> None:
     """A method defined twice silently replaces the first one."""
-    names = re.findall(r"^  (?:static )?(?:async )?(?:get |set )?(\w+)\(", path.read_text(), re.M)
-    duplicates = {name for name in names if names.count(name) > 1} - {"hass"}
-    assert not duplicates
+    for body in re.split(r"^class ", path.read_text(), flags=re.M)[1:]:
+        names = re.findall(r"^  (?:static )?(?:async )?(?:get |set )?(\w+)\(", body, re.M)
+        duplicates = {name for name in names if names.count(name) > 1} - {"hass"}
+        assert not duplicates

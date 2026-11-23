@@ -26,7 +26,8 @@
  *   route_color: "#e87722"
  *   name_position: top-center   # where on the photo the place name goes, or none
  *   year_position: top-right    # where on the photo the year of the trip goes, or none
- *   marker_icon: mdi:kangaroo   # optional: an icon, or the address of a picture (/local/...)
+ *   marker_icon: mdi:kangaroo   # optional: any icon Home Assistant knows
+ *   marker_image: /local/k.svg  # optional: your own picture as the marker
  *   labels: few             # few | all | none: the names on the map
  *   marker_size: 14         # diameter of a marker in pixels
  *   show_numbers: false     # number the markers in order of travel
@@ -34,7 +35,7 @@
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.9.0";
+const VERSION = "0.10.0";
 
 const DEFAULTS = {
   entry: undefined,
@@ -58,6 +59,7 @@ const DEFAULTS = {
   name_position: "top-center",
   year_position: "top-right",
   marker_icon: undefined,
+  marker_image: undefined,
   labels: "few",
   marker_size: 14,
   show_numbers: false,
@@ -198,7 +200,13 @@ const TEXT = {
     "position_bottom-center": "Bottom centre",
     "position_bottom-right": "Bottom right",
     form_group: "Only this group (name from the Travel map panel)",
-    form_marker_icon: "Marker icon (for example mdi:kangaroo, or /local/picture.svg)",
+    form_marker_icon: "Marker icon",
+    form_marker_image: "Or your own picture as the marker (for example /local/picture.svg)",
+    editor_labels: "Place name and year on the photo",
+    editor_labels_help: "Drag each label to a spot on the photo, or to the box below to hide it. With the keyboard: the arrow keys.",
+    editor_name: "Place name",
+    editor_year: "Year",
+    editor_hidden: "Not shown",
     form_labels: "Names on the map",
     labels_few: "Countries, capitals and big cities",
     labels_all: "Everything",
@@ -261,7 +269,13 @@ const TEXT = {
     "position_bottom-center": "Midden onder",
     "position_bottom-right": "Rechtsonder",
     form_group: "Alleen deze groep (naam uit het paneel Reiskaart)",
-    form_marker_icon: "Icoon van de marker (bijvoorbeeld mdi:kangaroo, of /local/plaatje.svg)",
+    form_marker_icon: "Icoon van de marker",
+    form_marker_image: "Of je eigen plaatje als marker (bijvoorbeeld /local/plaatje.svg)",
+    editor_labels: "Plaatsnaam en jaartal op de foto",
+    editor_labels_help: "Sleep elk label naar een plek op de foto, of naar het vak eronder om het te verbergen. Met het toetsenbord: de pijltjestoetsen.",
+    editor_name: "Plaatsnaam",
+    editor_year: "Jaartal",
+    editor_hidden: "Niet getoond",
     form_labels: "Namen op de kaart",
     labels_few: "Landen, hoofdsteden en grote steden",
     labels_all: "Alles",
@@ -400,7 +414,13 @@ class TravelmapCard extends HTMLElement {
     return {};
   }
 
-  static getConfigForm() {
+  static getConfigElement() {
+    return document.createElement("travelmap-card-editor");
+  }
+
+  static formSchema() {
+    // The form of the card editor. The spots of the place name and the year
+    // are not in it: the editor shows those as a frame to drag them in.
     const text = TEXT[languageOf(globalHass())];
     return {
       schema: [
@@ -438,8 +458,14 @@ class TravelmapCard extends HTMLElement {
           selector: { number: { min: 10, max: 100, step: 5, mode: "slider", unit_of_measurement: "%" } },
         },
         { name: "autoplay", selector: { boolean: {} } },
-        { name: "photo_seconds", selector: { number: { min: 1, max: 120, mode: "box" } } },
-        { name: "video_seconds", selector: { number: { min: 1, max: 600, mode: "box" } } },
+        {
+          name: "photo_seconds",
+          selector: { number: { min: 1, max: 60, mode: "slider", unit_of_measurement: "s" } },
+        },
+        {
+          name: "video_seconds",
+          selector: { number: { min: 1, max: 180, step: 1, mode: "slider", unit_of_measurement: "s" } },
+        },
         { name: "place_zoom", selector: { number: { min: 3, max: 18, mode: "slider" } } },
         {
           name: "fly_seconds",
@@ -459,16 +485,8 @@ class TravelmapCard extends HTMLElement {
           },
         },
         { name: "relief", selector: { boolean: {} } },
-        ...["name_position", "year_position"].map((name) => ({
-          name,
-          selector: {
-            select: {
-              mode: "dropdown",
-              options: POSITIONS.map((value) => ({ value, label: text[`position_${value}`] })),
-            },
-          },
-        })),
-        { name: "marker_icon", selector: { text: {} } },
+        { name: "marker_icon", selector: { icon: {} } },
+        { name: "marker_image", selector: { text: {} } },
         {
           name: "labels",
           selector: {
@@ -550,6 +568,7 @@ class TravelmapCard extends HTMLElement {
       previous.route_color !== merged.route_color ||
       previous.marker_size !== merged.marker_size ||
       previous.marker_icon !== merged.marker_icon ||
+      previous.marker_image !== merged.marker_image ||
       previous.show_numbers !== merged.show_numbers ||
       previous.route_line !== merged.route_line ||
       previous.view !== merged.view ||
@@ -882,6 +901,8 @@ class TravelmapCard extends HTMLElement {
   }
 
   _markerIcon() {
+    const image = String(this._config.marker_image || "").trim();
+    if (image) return { image };
     const icon = String(this._config.marker_icon || "").trim();
     if (!icon) return undefined;
     // "mdi:kangaroo" and the like are icons; anything else is a picture.
@@ -1615,6 +1636,274 @@ class TravelmapCard extends HTMLElement {
       this._frame.requestFullscreen().catch(() => undefined);
     }
   }
+}
+
+// ----- Card editor -----------------------------------------------------------
+
+const EDITOR_STYLE = `
+  :host { display: block; }
+  .labels { margin: 16px 0 8px; }
+  .labels h3 { margin: 0 0 4px; font-size: 1rem; font-weight: 500; }
+  .labels p { margin: 0 0 12px; color: var(--secondary-text-color); line-height: 1.5; }
+  .photo {
+    position: relative; aspect-ratio: 16 / 9; max-width: 520px;
+    border-radius: 12px; overflow: hidden;
+    background: linear-gradient(160deg, #7DB38A 0%, #1A3229 55%, #0F221B 100%);
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr;
+    align-content: space-between; gap: 0; padding: 8px; box-sizing: border-box;
+  }
+  .zone {
+    display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; min-height: 44px;
+    border: 2px dashed rgba(251, 248, 242, .45); border-radius: 8px; margin: 3px;
+    box-sizing: border-box;
+  }
+  .zone[data-zone^="top"] { align-content: flex-start; align-self: start; }
+  .zone[data-zone^="bottom"] { align-content: flex-end; align-self: end; }
+  .zone[data-zone$="left"] { justify-content: flex-start; }
+  .zone[data-zone$="center"] { justify-content: center; }
+  .zone[data-zone$="right"] { justify-content: flex-end; }
+  .zone.over { border-style: solid; border-color: #F2C230; background: rgba(242, 194, 48, .2); }
+  .tray {
+    max-width: 520px; margin-top: 8px; box-sizing: border-box;
+    border-color: var(--divider-color, #888); align-items: center;
+  }
+  .tray::before {
+    content: attr(data-title); color: var(--secondary-text-color); margin-right: 6px;
+  }
+  .chip {
+    font: 600 14px/1.2 var(--ha-font-family-body, sans-serif); padding: 8px 12px;
+    border-radius: 999px; border: 0; background: #FBF8F2; color: #0F221B;
+    cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  }
+  .chip:focus-visible { outline: 3px solid #F2C230; outline-offset: 2px; }
+  .chip.dragging { position: fixed; z-index: 9999; cursor: grabbing; pointer-events: none; opacity: .9; }
+`;
+
+class TravelmapCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = {};
+    this._hass = undefined;
+    this._built = false;
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._form) this._form.hass = hass;
+  }
+
+  setConfig(config) {
+    this._config = { ...(config || {}) };
+    this._render();
+  }
+
+  connectedCallback() {
+    this._render();
+    this._loadForm();
+  }
+
+  async _loadForm() {
+    // ha-form is part of Home Assistant but only loaded once an editor that
+    // uses it has been opened. Opening the editor of a built-in card does so.
+    if (customElements.get("ha-form")) return;
+    try {
+      const helpers = window.loadCardHelpers ? await window.loadCardHelpers() : undefined;
+      if (helpers) {
+        await helpers.createCardElement({ type: "tile", entity: "sun.sun" });
+        const card = customElements.get("hui-tile-card");
+        if (card && card.getConfigElement) await card.getConfigElement();
+      }
+    } catch (err) {
+      // The form then appears as soon as Home Assistant has loaded it itself.
+    }
+  }
+
+  _text() {
+    return TEXT[languageOf(this._hass || globalHass())];
+  }
+
+  _position(key) {
+    const value = this._config[key];
+    return POSITIONS.includes(value) ? value : DEFAULTS[key];
+  }
+
+  _change(config) {
+    this._config = config;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true })
+    );
+    this._render();
+  }
+
+  _formChanged(value) {
+    // The form shows the defaults too; only what differs from them, or was
+    // already in the configuration, is written.
+    const config = { type: this._config.type };
+    const fields = new Set(TravelmapCard.formSchema().schema.map((field) => field.name));
+    for (const [key, entry] of Object.entries(this._config)) {
+      // A field that was emptied in the form is gone; other keys stay.
+      if (!fields.has(key)) config[key] = entry;
+    }
+    for (const [key, entry] of Object.entries(value)) {
+      if (key === "type") continue;
+      if (entry === undefined || entry === null || entry === "") continue;
+      if (entry === DEFAULTS[key] && !(key in this._config)) continue;
+      config[key] = entry;
+    }
+    this._change(config);
+  }
+
+  _setPosition(key, position) {
+    if (this._position(key) === position) return;
+    this._change({ ...this._config, [key]: position });
+  }
+
+  _build() {
+    const style = document.createElement("style");
+    style.textContent = EDITOR_STYLE;
+    this._form = document.createElement("ha-form");
+    this._form.addEventListener("value-changed", (event) => {
+      event.stopPropagation();
+      this._formChanged(event.detail.value);
+    });
+    this._labels = document.createElement("div");
+    this._labels.className = "labels";
+    this._heading = document.createElement("h3");
+    this._help = document.createElement("p");
+    this._photo = document.createElement("div");
+    this._photo.className = "photo";
+    this._zones = new Map();
+    for (const position of POSITIONS.filter((p) => p !== "none")) {
+      const zone = document.createElement("div");
+      zone.className = "zone";
+      zone.dataset.zone = position;
+      this._zones.set(position, zone);
+      this._photo.appendChild(zone);
+    }
+    const tray = document.createElement("div");
+    tray.className = "zone tray";
+    tray.dataset.zone = "none";
+    this._zones.set("none", tray);
+    this._chips = {};
+    for (const key of ["name_position", "year_position"]) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.dataset.key = key;
+      chip.addEventListener("pointerdown", (event) => this._dragStart(event, chip));
+      chip.addEventListener("keydown", (event) => this._chipKey(event, key));
+      this._chips[key] = chip;
+    }
+    this._labels.append(this._heading, this._help, this._photo, tray);
+    this.shadowRoot.append(style, this._form, this._labels);
+    this._built = true;
+  }
+
+  _render() {
+    if (!this.isConnected) return;
+    if (!this._built) this._build();
+    const text = this._text();
+    const form = TravelmapCard.formSchema();
+    this._form.hass = this._hass;
+    this._form.schema = form.schema;
+    this._form.computeLabel = (schema) => text[`form_${schema.name}`];
+    this._form.data = { ...DEFAULTS, ...this._config };
+    this._heading.textContent = text.editor_labels;
+    this._help.textContent = text.editor_labels_help;
+    this._zones.get("none").dataset.title = text.editor_hidden;
+    for (const [position, zone] of this._zones) {
+      zone.setAttribute("aria-label", text[`position_${position}`]);
+    }
+    for (const [key, chip] of Object.entries(this._chips)) {
+      if (chip.classList.contains("dragging")) continue;
+      const position = this._position(key);
+      const label = key === "name_position" ? text.editor_name : text.editor_year;
+      chip.textContent = label;
+      chip.setAttribute("aria-label", `${label}: ${text[`position_${position}`]}`);
+      const zone = this._zones.get(position);
+      if (chip.parentElement !== zone) {
+        const focused = this.shadowRoot.activeElement === chip;
+        zone.appendChild(chip);
+        if (focused) chip.focus();
+      }
+    }
+  }
+
+  _zoneAt(x, y) {
+    for (const [position, zone] of this._zones) {
+      const box = zone.getBoundingClientRect();
+      if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return position;
+    }
+    // Inside the photo but between two spots: the nearest spot.
+    const photo = this._photo.getBoundingClientRect();
+    if (x < photo.left || x > photo.right || y < photo.top || y > photo.bottom) return undefined;
+    const edge = y < photo.top + photo.height / 2 ? "top" : "bottom";
+    const third = (x - photo.left) / photo.width;
+    const side = third < 1 / 3 ? "left" : third < 2 / 3 ? "center" : "right";
+    return `${edge}-${side}`;
+  }
+
+  _dragStart(event, chip) {
+    if (event.button !== undefined && event.button > 0) return;
+    event.preventDefault();
+    chip.focus();
+    const box = chip.getBoundingClientRect();
+    const offset = { x: event.clientX - box.left, y: event.clientY - box.top };
+    let moved = false;
+    const move = (ev) => {
+      if (!moved) {
+        if (Math.hypot(ev.clientX - event.clientX, ev.clientY - event.clientY) < 4) return;
+        moved = true;
+        chip.classList.add("dragging");
+        chip.style.width = `${box.width}px`;
+      }
+      chip.style.left = `${ev.clientX - offset.x}px`;
+      chip.style.top = `${ev.clientY - offset.y}px`;
+      const over = this._zoneAt(ev.clientX, ev.clientY);
+      for (const [position, zone] of this._zones) zone.classList.toggle("over", position === over);
+    };
+    const end = (ev) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      for (const zone of this._zones.values()) zone.classList.remove("over");
+      chip.classList.remove("dragging");
+      chip.style.left = chip.style.top = chip.style.width = "";
+      const target = moved && ev.type === "pointerup" ? this._zoneAt(ev.clientX, ev.clientY) : undefined;
+      if (target) this._setPosition(chip.dataset.key, target);
+      else this._render();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }
+
+  _chipKey(event, key) {
+    const current = this._position(key);
+    const sides = ["left", "center", "right"];
+    const [edge, side] = current === "none" ? ["none", "center"] : current.split("-");
+    let next;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      if (edge === "none") return;
+      const step = event.key === "ArrowLeft" ? -1 : 1;
+      const index = Math.min(Math.max(sides.indexOf(side) + step, 0), 2);
+      next = `${edge}-${sides[index]}`;
+    } else if (event.key === "ArrowUp") {
+      next = edge === "none" ? "bottom-center" : `top-${side}`;
+    } else if (event.key === "ArrowDown") {
+      next = edge === "top" ? `bottom-${side}` : "none";
+    } else {
+      return;
+    }
+    event.preventDefault();
+    this._setPosition(key, next);
+  }
+}
+
+if (!customElements.get("travelmap-card-editor")) {
+  customElements.define("travelmap-card-editor", TravelmapCardEditor);
 }
 
 if (!customElements.get("travelmap-card")) {
