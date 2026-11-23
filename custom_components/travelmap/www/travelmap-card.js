@@ -12,7 +12,8 @@
  *   view: world             # world | trip | place: what the map shows while playing
  *   projection: flat        # flat | globe
  *   max_zoom: 6             # closest zoom for the trip view
- *   photo_size: 70          # size of a photo, as a percentage of the card
+ *   photo_size: 70          # width of a photo, as a percentage of the card
+ *   video_size: 70          # width of a video; the photo size when left out
  *   autoplay: false
  *   photo_seconds: 6
  *   video_seconds: 15
@@ -20,7 +21,7 @@
  *   route_color: "#e87722"
  */
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 const DEFAULTS = {
   entry: undefined,
@@ -30,6 +31,7 @@ const DEFAULTS = {
   projection: "flat",
   max_zoom: 6,
   photo_size: 70,
+  video_size: undefined,
   autoplay: false,
   photo_seconds: 6,
   video_seconds: 15,
@@ -76,7 +78,8 @@ const TEXT = {
     projection_flat: "Flat map",
     projection_globe: "Globe",
     form_max_zoom: "Closest zoom for the whole trip",
-    form_photo_size: "Photo size, as a percentage of the card",
+    form_photo_size: "Photo size (width as a percentage of the card)",
+    form_video_size: "Video size (width as a percentage of the card)",
     form_autoplay: "Start playing right away",
     form_photo_seconds: "Seconds per photo",
     form_video_seconds: "Longest time per video, in seconds",
@@ -110,7 +113,8 @@ const TEXT = {
     projection_flat: "Platte kaart",
     projection_globe: "Wereldbol",
     form_max_zoom: "Dichtste zoom voor de hele reis",
-    form_photo_size: "Fotogrootte, als percentage van de kaart",
+    form_photo_size: "Fotogrootte (breedte als percentage van de kaart)",
+    form_video_size: "Videogrootte (breedte als percentage van de kaart)",
     form_autoplay: "Meteen afspelen",
     form_photo_seconds: "Seconden per foto",
     form_video_seconds: "Langste tijd per video, in seconden",
@@ -254,7 +258,14 @@ class TravelmapCard extends HTMLElement {
           },
         },
         { name: "max_zoom", selector: { number: { min: 1, max: 18, mode: "slider" } } },
-        { name: "photo_size", selector: { number: { min: 30, max: 95, mode: "slider" } } },
+        {
+          name: "photo_size",
+          selector: { number: { min: 10, max: 100, step: 5, mode: "slider", unit_of_measurement: "%" } },
+        },
+        {
+          name: "video_size",
+          selector: { number: { min: 10, max: 100, step: 5, mode: "slider", unit_of_measurement: "%" } },
+        },
         { name: "autoplay", selector: { boolean: {} } },
         { name: "photo_seconds", selector: { number: { min: 1, max: 120, mode: "box" } } },
         { name: "video_seconds", selector: { number: { min: 1, max: 600, mode: "box" } } },
@@ -884,19 +895,22 @@ class TravelmapCard extends HTMLElement {
     };
   }
 
-  _placePhoto(card, point, ratio) {
-    // As large as the setting allows, beside the marker where there is room,
-    // so the place stays visible next to its photo.
-    const size = Math.min(Math.max(this._number("photo_size"), 30), 95) / 100;
+  _mediaSize(kind) {
+    // The set size is what the viewer gets: a share of the card's width.
+    const own = Number(this._config[kind === "video" ? "video_size" : "photo_size"]);
+    const size = Number.isFinite(own) && own > 0 ? own : this._number("photo_size");
+    return Math.min(Math.max(size, 10), 100) / 100;
+  }
+
+  _placePhoto(card, point, ratio, kind) {
+    // As wide as the setting says, and never taller than the card has room
+    // for. Beside the marker where that fits; otherwise it overlaps it.
     const margin = 16;
     const top = 64;
     const bottom = 84;
     const gap = 48;
-    let maxWidth = Math.max(point.width * size, 120);
-    // Keep the marker in view when the larger side has room for a decent photo.
-    const beside = Math.max(point.x, point.width - point.x) - gap - margin;
-    if (beside >= point.width * 0.4) maxWidth = Math.min(maxWidth, beside);
-    const maxHeight = Math.max((point.height - top - bottom) * Math.min(size + 0.15, 1), 90);
+    const maxWidth = Math.max((point.width - 2 * margin) * this._mediaSize(kind), 80);
+    const maxHeight = Math.max(point.height - top - bottom, 60);
     let width = maxWidth;
     let height = width / ratio;
     if (height > maxHeight) {
@@ -963,7 +977,7 @@ class TravelmapCard extends HTMLElement {
     const card = document.createElement("div");
     card.className = "photo";
     card.appendChild(element);
-    const edge = this._placePhoto(card, point, ratio);
+    const edge = this._placePhoto(card, point, ratio, item.type);
 
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", point.x);

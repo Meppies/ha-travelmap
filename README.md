@@ -98,7 +98,8 @@ autoplay: true
 | `view` | `world` | What the map shows while playing. `world` shows the whole world, `trip` keeps the whole trip in view, `place` flies to each place. |
 | `projection` | `flat` | `flat` draws a flat world map. `globe` leaves the map as Home Assistant draws it, which is a globe when zoomed out. |
 | `max_zoom` | `6` | Closest zoom for the `trip` view. A lower number shows more of the world around the trip. |
-| `photo_size` | `70` | Largest size of a photo, as a percentage of the card. A photo is made smaller when that keeps its marker in view. |
+| `photo_size` | `70` | Width of a photo as a percentage of the card, 10 to 100. A photo is never taller than the card has room for, so a portrait photo comes out narrower. |
+| `video_size` | photo size | Width of a video as a percentage of the card, 10 to 100. |
 | `autoplay` | `false` | Start playing when the card loads. |
 | `photo_seconds` | `6` | Time per photo. |
 | `video_seconds` | `15` | Longest time per video. Videos play without sound. |
