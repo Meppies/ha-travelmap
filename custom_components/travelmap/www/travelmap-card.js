@@ -35,7 +35,7 @@
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.11.0";
+const VERSION = "0.11.1";
 
 const DEFAULTS = {
   entry: undefined,
@@ -108,6 +108,8 @@ const RELIEF_TILES =
   "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg";
 const RELIEF_MAX_ZOOM = 8;
 const ALL_TRIPS = "__all__";
+// Slow start, slow arrival.
+const FLIGHT_EASING = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const VIEWS = ["world", "trip", "place"];
 const PROJECTIONS = ["flat", "globe"];
 const POSITIONS = [
@@ -1093,8 +1095,18 @@ class TravelmapCard extends HTMLElement {
       gl.stop();
       // Zooming out further would show the world more than once.
       gl.setMinZoom(Math.max(view.zoom - 0.001, 0));
-      if (fly) gl.easeTo({ ...view, duration: 3000, essential: true });
-      else gl.jumpTo(view);
+      if (fly) {
+        // The same kind of flight as towards a place, backwards: rise and
+        // move at the same time, slow start, slow arrival. A plain ease
+        // would dart to the middle first and only then zoom out.
+        gl.flyTo({
+          ...view,
+          duration: this._flySeconds() * 1000,
+          curve: 1.2,
+          essential: true,
+          easing: FLIGHT_EASING,
+        });
+      } else gl.jumpTo(view);
       return true;
     } catch (err) {
       return false;
@@ -1135,12 +1147,16 @@ class TravelmapCard extends HTMLElement {
     return Number.isFinite(own) && own >= 1 ? own : this._number("place_zoom");
   }
 
+  _flySeconds() {
+    return Math.min(Math.max(this._number("fly_seconds"), 1), 30);
+  }
+
   async _flyTo(place) {
     // One long, eased flight from where the map is to the place. The map's
     // own fit flies at a fixed speed and jumps when the device asks for
     // reduced motion, so the flight is driven on the map engine, with a set
     // duration.
-    const seconds = Math.min(Math.max(this._number("fly_seconds"), 1), 30);
+    const seconds = this._flySeconds();
     const zoom = this._zoomFor(place);
     const gl = this._engineMap();
     if (gl) {
@@ -1152,8 +1168,7 @@ class TravelmapCard extends HTMLElement {
           duration: seconds * 1000,
           curve: 1.2,
           essential: true,
-          // Slow start, slow arrival.
-          easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2),
+          easing: FLIGHT_EASING,
         };
         const from = this._lastPlace;
         if (from && from.trip.id === place.trip.id && from.key !== place.key) {
@@ -1205,7 +1220,10 @@ class TravelmapCard extends HTMLElement {
       const arrived = gl ? new Promise((resolve) => gl.once("moveend", resolve)) : undefined;
       this._fitTrip(true);
       this._lastPlace = undefined;
-      await Promise.race([arrived || this._sleep(FLY_MS), this._sleep(4500)]);
+      await Promise.race([
+        arrived || this._sleep(FLY_MS),
+        this._sleep(this._flySeconds() * 1000 + 1500),
+      ]);
       if (!this._alive(generation)) return;
     }
     await this._sleep(Math.min(seconds, 600) * 1000);
