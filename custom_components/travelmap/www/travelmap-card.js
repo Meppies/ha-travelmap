@@ -26,6 +26,7 @@
  *   route_color: "#e87722"
  *   name_position: top-center   # where on the photo the place name goes, or none
  *   year_position: top-right    # where on the photo the year of the trip goes, or none
+ *   media_per_visit: 10         # photos and videos per visit to a place; 0 shows all
  *   marker_icon: mdi:kangaroo   # optional: any icon Home Assistant knows
  *   marker_image: /local/k.svg  # optional: your own picture as the marker
  *   labels: few             # few | all | none: the names on the map
@@ -35,7 +36,7 @@
  *   photo_line: false       # line between a photo and its marker
  */
 
-const VERSION = "0.11.1";
+const VERSION = "0.12.0";
 
 const DEFAULTS = {
   entry: undefined,
@@ -58,6 +59,7 @@ const DEFAULTS = {
   route_color: undefined,
   name_position: "top-center",
   year_position: "top-right",
+  media_per_visit: 10,
   marker_icon: undefined,
   marker_image: undefined,
   labels: "few",
@@ -70,7 +72,7 @@ const DEFAULTS = {
 // The Desired State palette on the map. Night is the dark theme: land in
 // bush green on a eucalyptus sea. Day is the light theme, on paper.
 const MEPPIE_NIGHT = {
-  background: "#1A3229", land: "#1A3229", water: "#0F221B", labelWater: "#9DB3A8",
+  background: "#1A3229", land: "#1A3229", water: "#14364F", labelWater: "#A9C7DD",
   natureWood: "#2A5E42", natureGrass: "#24493A", naturePark: "#2A5E42", natureLeisure: "#24493A",
   natureAgriculture: "#223F33", natureWetland: "#2B4F47", natureSand: "#9C7A32",
   natureRock: "#6B4A36", glacier: "#E9E6DC",
@@ -85,7 +87,7 @@ const MEPPIE_NIGHT = {
   labelShield: "#1A3229", labelHousenumber: "#C9D6CE4d",
 };
 const MEPPIE_DAY = {
-  background: "#FBF8F2", land: "#FBF8F2", water: "#C9D6CE", labelWater: "#2E5A47",
+  background: "#FBF8F2", land: "#FBF8F2", water: "#A7CBE3", labelWater: "#1F5578",
   natureWood: "#A9CDB0", natureGrass: "#D3E5CF", naturePark: "#A9CDB0", natureLeisure: "#D3E5CF",
   natureAgriculture: "#E6EBD8", natureWetland: "#CFE0D6", natureSand: "#F2DC9A",
   natureRock: "#D9B79E", glacier: "#FDFDFB",
@@ -184,6 +186,7 @@ const TEXT = {
     form_autoplay: "Start playing right away",
     form_photo_seconds: "Seconds per photo",
     form_video_seconds: "Longest time per video, in seconds",
+    form_media_per_visit: "Photos and videos per visit to a place; the rest follows on the next rounds (0 shows all)",
     form_place_zoom: "Zoom level when flying to each place",
     form_fly_seconds: "Duration of the flight between two places, in seconds",
     form_overview_seconds: "Pause at the overview after each trip, in seconds (0 skips it)",
@@ -253,6 +256,7 @@ const TEXT = {
     form_autoplay: "Meteen afspelen",
     form_photo_seconds: "Seconden per foto",
     form_video_seconds: "Langste tijd per video, in seconden",
+    form_media_per_visit: "Foto's en video's per bezoek aan een plek; de rest volgt in de volgende rondes (0 toont alles)",
     form_place_zoom: "Zoomniveau bij naar elke plek vliegen",
     form_fly_seconds: "Duur van de vlucht tussen twee plekken, in seconden",
     form_overview_seconds: "Pauze bij het overzicht na elke reis, in seconden (0 slaat het over)",
@@ -469,6 +473,7 @@ class TravelmapCard extends HTMLElement {
           name: "video_seconds",
           selector: { number: { min: 1, max: 180, step: 1, mode: "slider", unit_of_measurement: "s" } },
         },
+        { name: "media_per_visit", selector: { number: { min: 0, max: 50, mode: "slider" } } },
         { name: "place_zoom", selector: { number: { min: 3, max: 18, mode: "slider" } } },
         {
           name: "fly_seconds",
@@ -1271,12 +1276,13 @@ class TravelmapCard extends HTMLElement {
   _applyRelief() {
     // The vector map knows forest, sand and ice only from close by. Zoomed
     // out, a satellite picture of the land goes under the sea and the labels,
-    // so the sea keeps the colour of the style.
+    // and the sea is laid over it half see-through.
     const gl = this._engineMap();
     if (!gl || !gl.isStyleLoaded || !gl.getLayer) return;
     try {
       const wanted = this._config.relief !== false;
       const present = !!gl.getLayer(RELIEF_SOURCE);
+      this._applySeaDepth(gl, wanted);
       if (!wanted) {
         if (present) gl.removeLayer(RELIEF_SOURCE);
         if (gl.getSource(RELIEF_SOURCE)) gl.removeSource(RELIEF_SOURCE);
@@ -1311,6 +1317,24 @@ class TravelmapCard extends HTMLElement {
       );
     } catch (err) {
       // Without relief the map is still complete.
+    }
+  }
+
+  _applySeaDepth(gl, relief) {
+    // The satellite picture also holds the depth of the sea. Zoomed out, the
+    // blue of the sea is laid over it half see-through, so shallow and deep
+    // water differ; from close by the sea is the plain blue of the style.
+    try {
+      const layer = gl.getLayer("water-ocean");
+      if (!layer || layer.type !== "fill") return;
+      const wanted = relief ? ["interpolate", ["linear"], ["zoom"], 5, 0.45, 9, 0.8, 11, 1] : 1;
+      const current = gl.getPaintProperty("water-ocean", "fill-opacity");
+      // Only write on a change: writing triggers the event this runs on.
+      if (JSON.stringify(current === undefined ? 1 : current) !== JSON.stringify(wanted)) {
+        gl.setPaintProperty("water-ocean", "fill-opacity", wanted);
+      }
+    } catch (err) {
+      // The sea then keeps its plain colour.
     }
   }
 
@@ -1504,10 +1528,24 @@ class TravelmapCard extends HTMLElement {
     }
   }
 
+  _batch(place, advance) {
+    // The photos and videos of this visit. With a limit per visit, a place
+    // with more shows the next lot on the next round, and starts again at
+    // the first once all have been shown.
+    const all = place.media || [];
+    const limit = Math.floor(Number(this._config.media_per_visit));
+    if (!Number.isFinite(limit) || limit <= 0 || all.length <= limit) return all;
+    if (!this._cursors) this._cursors = new Map();
+    let start = this._cursors.get(place.key) || 0;
+    if (start >= all.length) start = 0;
+    if (advance) this._cursors.set(place.key, start + limit);
+    return all.slice(start, start + limit);
+  }
+
   async _playPlace(generation, place, upcoming) {
     this._setActive(place.key);
     this._showCaption(place);
-    const media = place.media || [];
+    const media = this._batch(place, true);
     // The first photo is fetched during the flight.
     this._prepareMedia(media[0]);
     if (this._config.view === "place") {
@@ -1527,7 +1565,7 @@ class TravelmapCard extends HTMLElement {
       if (!this._alive(generation)) return;
       this._showCaption(place, media[i], i, media.length);
       // The next one is fetched while this one is on screen.
-      this._prepareMedia(media[i + 1] || (upcoming && (upcoming.media || [])[0]));
+      this._prepareMedia(media[i + 1] || (upcoming && this._batch(upcoming, false)[0]));
       await this._showMedia(generation, place, media[i]);
     }
     if (!this._alive(generation)) return;

@@ -136,12 +136,13 @@ autoplay: true
 | `photo_size` | `70` | Width of a photo as a percentage of the card, 10 to 100. A photo is never taller than the card has room for, so a portrait photo comes out narrower. |
 | `video_size` | photo size | Width of a video as a percentage of the card, 10 to 100. |
 | `autoplay` | `false` | Start playing when the card loads. |
+| `media_per_visit` | `10` | How many photos and videos a place shows per visit. A place with more shows the next ones on the next round, and starts again at the first when all have been shown. `0` shows everything every time. |
 | `photo_seconds` | `6` | Time per photo. |
 | `video_seconds` | `15` | Longest time per video. Videos play without sound. |
 | `place_zoom` | `12` | Zoom level for `view: place`. A trip can have its own, set in the Travel map panel. |
 | `fly_seconds` | `6` | Duration of the flight from one place to the next with `view: place`, 1 to 30. The flight is one continuous, eased movement. Between two places of the same trip the map first rises until both are in view. |
 | `overview_seconds` | `4` | After the last place of a trip the map goes back to the overview and waits this long before the next trip, 0 to 60. `0` skips the overview. |
-| `map_style` | `meppie` | Colours of the map. `meppie` is the Desired State palette: bush green land on a eucalyptus sea in a dark theme, paper in a light one. `default` leaves the map as Home Assistant draws it. |
+| `map_style` | `meppie` | Colours of the map. `meppie` is the Desired State palette: bush green land in a dark theme, paper in a light one, and a blue sea in both. With `relief` on, the depth of the sea shows through when zoomed out. `default` leaves the map as Home Assistant draws it. |
 | `relief` | `true` | Zoomed out, show the land as a satellite picture with relief, so that snow, desert, forest and mountains are visible. See Known limitations for where it comes from. |
 | `name_position` | `top-center` | Where on the photo the place name is shown: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` or `none`. |
 | `year_position` | `top-right` | Where on the photo the year of the trip is shown; same values. The year comes from `start` in `trip.yaml`, otherwise from the folder name. |
